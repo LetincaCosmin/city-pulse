@@ -1,36 +1,89 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Resita Pulse
 
-## Getting Started
+Aplicatie web Next.js pentru feed local, evenimente, business-uri, harta si conturi.
 
-First, run the development server:
+## Local
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Aplicatia porneste de obicei pe `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+## Variabile de mediu
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Copiaza `.env.example` in `.env.local` si completeaza valorile din Supabase:
 
-## Learn More
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+NEXT_PUBLIC_SHOW_DEMO_CONTENT=false
+NEXT_PUBLIC_CONTACT_EMAIL=contact@example.com
+NEXT_PUBLIC_OPERATOR_NAME=Operatorul Resita Pulse
+```
 
-To learn more about Next.js, take a look at the following resources:
+Pe Vercel, aceleasi variabile trebuie adaugate in:
+`Project Settings -> Environment Variables`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Supabase
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Ruleaza schema din `supabase-mvp-schema.sql` in Supabase Dashboard:
+`SQL Editor -> New query -> Run`.
 
-## Deploy on Vercel
+Schema include:
+- `profiles`
+- `businesses`
+- `posts`
+- `events`
+- `event_participants`
+- `notifications`
+- storage pentru avatar, media business si poze de postari
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Pentru curatenie inainte de lansare, foloseste `supabase-launch-cleanup.sql`.
+Ruleaza-l doar dupa ce verifici ca vrei sa stergi postarile, evenimentele si
+notificarile de test.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Deploy pe Vercel
+
+1. Urca proiectul pe GitHub.
+2. In Vercel, alege `Add New Project`.
+3. Selecteaza repository-ul.
+4. Daca proiectul este in subfolder, seteaza Root Directory la `city-pulse`.
+5. Adauga variabilele:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_SHOW_DEMO_CONTENT=false`
+   - `NEXT_PUBLIC_CONTACT_EMAIL`
+   - `NEXT_PUBLIC_OPERATOR_NAME`
+6. Deploy.
+
+Build command:
+
+```bash
+npm run build
+```
+
+Output-ul este gestionat automat de Vercel pentru Next.js.
+
+## PWA
+
+Aplicatia are manifest, service worker si icon-uri pentru instalare pe telefon:
+- Android: prompt nativ de instalare cand browserul permite.
+- iOS: card cu instructiuni pentru `Share -> Add to Home Screen`.
+
+PWA functioneaza corect doar pe HTTPS, deci pe linkul Vercel.
+
+## Verificare inainte de deploy
+
+```bash
+npm run lint
+npm run build
+```
+
+Inainte de lansare publica:
+- seteaza `NEXT_PUBLIC_CONTACT_EMAIL` si `NEXT_PUBLIC_OPERATOR_NAME`
+- verifica variabilele Supabase pe Vercel
+- ruleaza optional `supabase-launch-cleanup.sql` pentru continutul de test
+- testeaza creare cont normal si cont business
+- testeaza instalarea PWA pe Android/iOS
