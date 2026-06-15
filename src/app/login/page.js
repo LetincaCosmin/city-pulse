@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -37,6 +37,7 @@ const passwordChecks = [
 export default function LoginPage() {
   const router = useRouter();
   const [isSignUp, setIsSignUp] = useState(false);
+  const [isResetRequest, setIsResetRequest] = useState(false);
   const [accountType, setAccountType] = useState("user");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -45,6 +46,7 @@ export default function LoginPage() {
   const [businessCategory, setBusinessCategory] = useState("localuri");
   const [acceptedLegal, setAcceptedLegal] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [infoMsg, setInfoMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
   const profileName = accountType === "business" ? businessName : name;
@@ -53,6 +55,29 @@ export default function LoginPage() {
     isValid: check.test(password),
   }));
   const isPasswordStrong = passwordValidation.every((check) => check.isValid);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const nextInfoMsg =
+      params.get("confirmed") === "1"
+        ? "Email confirmat. Te poti conecta acum."
+        : params.get("passwordReset") === "1"
+          ? "Parola a fost schimbata. Te poti conecta cu parola noua."
+          : "";
+
+    if (!nextInfoMsg) return undefined;
+
+    const timeout = window.setTimeout(() => {
+      setInfoMsg(nextInfoMsg);
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  const getRedirectUrl = (path) => {
+    if (typeof window === "undefined") return undefined;
+    return `${window.location.origin}${path}`;
+  };
 
   const saveProfile = async (authUser) => {
     if (!authUser?.id) return;
@@ -74,7 +99,25 @@ export default function LoginPage() {
       .eq("id", authUser.id)
       .maybeSingle();
 
-    if (profile?.role !== "business") {
+    const fallbackProfile = {
+      role: authUser.user_metadata?.role || "user",
+      name: authUser.user_metadata?.name || authUser.email?.split("@")[0],
+      category: authUser.user_metadata?.category || null,
+    };
+    const role = profile?.role || fallbackProfile.role;
+
+    if (!profile) {
+      await supabase.from("profiles").upsert([
+        {
+          id: authUser.id,
+          name: fallbackProfile.name,
+          role,
+          category: fallbackProfile.category,
+        },
+      ]);
+    }
+
+    if (role !== "business") {
       return "/";
     }
 
@@ -87,9 +130,37 @@ export default function LoginPage() {
     return business ? "/" : "/setup-profile";
   };
 
+  const handleResetRequest = async (e) => {
+    e.preventDefault();
+    setErrorMsg("");
+    setInfoMsg("");
+    setLoading(true);
+
+    try {
+      if (!email) {
+        throw new Error("Introdu emailul contului.");
+      }
+
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: getRedirectUrl("/reset-password"),
+      });
+
+      if (error) throw error;
+
+      setInfoMsg(
+        "Daca exista un cont cu acest email, am trimis un link pentru resetarea parolei.",
+      );
+    } catch (err) {
+      setErrorMsg(err.message || "Nu am putut trimite emailul de resetare.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg("");
+    setInfoMsg("");
     setLoading(true);
 
     try {
@@ -110,6 +181,7 @@ export default function LoginPage() {
           email,
           password,
           options: {
+            emailRedirectTo: getRedirectUrl("/login?confirmed=1"),
             data: {
               name: profileName,
               role: accountType,
@@ -119,6 +191,17 @@ export default function LoginPage() {
         });
 
         if (error) throw error;
+
+        if (!data.session) {
+          setInfoMsg(
+            "Ti-am trimis un email de confirmare. Verifica inbox-ul si apasa pe link ca sa activezi contul.",
+          );
+          setIsSignUp(false);
+          setPassword("");
+          setAcceptedLegal(false);
+          return;
+        }
+
         await saveProfile(data.user);
 
         router.push(accountType === "business" ? "/setup-profile" : "/");
@@ -164,9 +247,17 @@ export default function LoginPage() {
           <p className="mt-2 text-xs font-light text-zinc-500">
             {isSignUp
               ? "Creeaza contul si intra in oras"
+              : isResetRequest
+                ? "Primeste link pentru resetarea parolei"
               : "Conecteaza-te la pulsul orasului"}
           </p>
         </div>
+
+        {infoMsg && (
+          <div className="mb-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-center text-xs text-emerald-300">
+            {infoMsg}
+          </div>
+        )}
 
         {errorMsg && (
           <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-center text-xs text-red-400">
@@ -174,7 +265,7 @@ export default function LoginPage() {
           </div>
         )}
 
-        {isSignUp && (
+        {isSignUp && !isResetRequest && (
           <div className="mb-6 grid grid-cols-2 gap-2 rounded-2xl bg-black/30 p-1 ring-1 ring-white/10">
             <button
               type="button"
@@ -203,7 +294,10 @@ export default function LoginPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form
+          onSubmit={isResetRequest ? handleResetRequest : handleSubmit}
+          className="space-y-4"
+        >
           {isSignUp && (
             <Field
               icon={Sparkles}
@@ -253,16 +347,18 @@ export default function LoginPage() {
             placeholder="nume@email.ro"
           />
 
-          <Field
-            icon={Lock}
-            label="Parola"
-            type="password"
-            value={password}
-            onChange={setPassword}
-            placeholder={isSignUp ? "Minim 8 caractere" : "Parola"}
-          />
+          {!isResetRequest && (
+            <Field
+              icon={Lock}
+              label="Parola"
+              type="password"
+              value={password}
+              onChange={setPassword}
+              placeholder={isSignUp ? "Minim 8 caractere" : "Parola"}
+            />
+          )}
 
-          {isSignUp && (
+          {isSignUp && !isResetRequest && (
             <div className="rounded-2xl border border-zinc-800 bg-black/25 p-3">
               <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
                 Parola sigura
@@ -291,7 +387,7 @@ export default function LoginPage() {
             </div>
           )}
 
-          {isSignUp && (
+          {isSignUp && !isResetRequest && (
             <label className="flex items-start gap-3 rounded-2xl border border-zinc-800 bg-black/25 p-3 text-[11px] leading-relaxed text-zinc-500">
               <input
                 type="checkbox"
@@ -335,6 +431,8 @@ export default function LoginPage() {
             <span>
               {loading
                 ? "Se proceseaza..."
+                : isResetRequest
+                  ? "Trimite link de resetare"
                 : isSignUp
                   ? "Creeaza cont"
                   : "Intra in aplicatie"}
@@ -346,15 +444,34 @@ export default function LoginPage() {
         <button
           type="button"
           onClick={() => {
+            setIsResetRequest(false);
             setIsSignUp(!isSignUp);
             setAcceptedLegal(false);
+            setErrorMsg("");
+            setInfoMsg("");
           }}
           className="mt-5 w-full text-center text-xs font-light text-zinc-500 transition-colors hover:text-zinc-300"
         >
-          {isSignUp
+          {isResetRequest
+            ? "Inapoi la conectare"
+            : isSignUp
             ? "Ai deja cont? Conecteaza-te"
             : "Nu ai cont? Inregistreaza-te gratuit"}
         </button>
+
+        {!isSignUp && !isResetRequest && (
+          <button
+            type="button"
+            onClick={() => {
+              setIsResetRequest(true);
+              setErrorMsg("");
+              setInfoMsg("");
+            }}
+            className="mt-3 w-full text-center text-xs font-light text-zinc-500 transition-colors hover:text-zinc-300"
+          >
+            Ai uitat parola?
+          </button>
+        )}
 
         <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-600">
           <Link href="/privacy" className="hover:text-[#ff003c]">

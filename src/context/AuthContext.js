@@ -11,11 +11,32 @@ export function AuthProvider({ children }) {
 
   async function fetchUserProfile(authUser) {
     try {
-      const { data: profile } = await supabase
+      const { data: profileData } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", authUser.id)
         .maybeSingle();
+
+      let profile = profileData || null;
+      const fallbackName = authUser.email?.split("@")[0] || "User";
+
+      if (!profile) {
+        const metadata = authUser.user_metadata || {};
+        const newProfile = {
+          id: authUser.id,
+          name: metadata.name || fallbackName,
+          role: metadata.role || "user",
+          category: metadata.category || null,
+        };
+
+        const { data: createdProfile } = await supabase
+          .from("profiles")
+          .upsert([newProfile])
+          .select("*")
+          .maybeSingle();
+
+        profile = createdProfile || newProfile;
+      }
 
       let business = null;
       if (profile?.role === "business") {
@@ -28,7 +49,6 @@ export function AuthProvider({ children }) {
         business = businessData || null;
       }
 
-      const fallbackName = authUser.email?.split("@")[0] || "User";
       const name = profile?.name || business?.name || fallbackName;
       const avatarUrl =
         profile?.role === "business"
