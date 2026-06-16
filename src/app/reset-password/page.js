@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Check, Lock } from "lucide-react";
+import { ArrowRight, Check, Eye, EyeOff, Lock } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 const passwordChecks = [
@@ -29,6 +29,8 @@ export default function ResetPasswordPage() {
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [hasSession, setHasSession] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -159,21 +161,45 @@ export default function ResetPasswordPage() {
             <Field
               icon={Lock}
               label="Parola noua"
-              type="password"
+              type={showPassword ? "text" : "password"}
               value={password}
               onChange={setPassword}
               placeholder="Minim 8 caractere"
               disabled={!hasSession}
+              rightElement={
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((value) => !value)}
+                  disabled={!hasSession}
+                  className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 transition-colors hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label={showPassword ? "Ascunde parola" : "Arata parola"}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              }
             />
 
             <Field
               icon={Lock}
               label="Confirma parola"
-              type="password"
+              type={showConfirmPassword ? "text" : "password"}
               value={confirmPassword}
               onChange={setConfirmPassword}
               placeholder="Repeta parola"
               disabled={!hasSession}
+              rightElement={
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((value) => !value)}
+                  disabled={!hasSession}
+                  className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 transition-colors hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label={
+                    showConfirmPassword ? "Ascunde parola" : "Arata parola"
+                  }
+                >
+                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              }
             />
 
             <div className="rounded-2xl border border-zinc-800 bg-black/25 p-3">
@@ -233,6 +259,7 @@ function Field({
   type = "text",
   placeholder,
   disabled = false,
+  rightElement = null,
 }) {
   return (
     <div>
@@ -248,8 +275,13 @@ function Field({
           value={value}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-xl border border-zinc-800 bg-[#161619] py-3 pl-11 pr-4 text-xs font-light text-zinc-200 transition-all placeholder:text-zinc-600 focus:border-[#ff003c]/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          className={`w-full rounded-xl border border-zinc-800 bg-[#161619] py-3 pl-11 text-xs font-light text-zinc-200 transition-all placeholder:text-zinc-600 focus:border-[#ff003c]/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
+            rightElement ? "pr-12" : "pr-4"
+          }`}
         />
+        {rightElement && (
+          <div className="absolute right-2 flex items-center">{rightElement}</div>
+        )}
       </div>
     </div>
   );

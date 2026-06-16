@@ -17,6 +17,7 @@ import "./globals.css";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ModalProvider } from "@/context/ModalContext";
 import PwaInstallPrompt from "@/components/PwaInstallPrompt";
+import WelcomeOnboarding from "@/components/WelcomeOnboarding";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -275,6 +276,7 @@ function LayoutContent({ children }) {
       </nav>
 
       <PwaInstallPrompt />
+      <WelcomeOnboarding />
     </div>
   );
 }

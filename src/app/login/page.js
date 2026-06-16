@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Check,
+  Eye,
+  EyeOff,
   Layers,
   Lock,
   Mail,
@@ -41,6 +43,7 @@ export default function LoginPage() {
   const [accountType, setAccountType] = useState("user");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [businessCategory, setBusinessCategory] = useState("localuri");
@@ -351,10 +354,20 @@ export default function LoginPage() {
             <Field
               icon={Lock}
               label="Parola"
-              type="password"
+              type={showPassword ? "text" : "password"}
               value={password}
               onChange={setPassword}
               placeholder={isSignUp ? "Minim 8 caractere" : "Parola"}
+              rightElement={
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((value) => !value)}
+                  className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 transition-colors hover:bg-white/5 hover:text-white"
+                  aria-label={showPassword ? "Ascunde parola" : "Arata parola"}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              }
             />
           )}
 
@@ -498,6 +511,7 @@ function Field({
   onChange,
   type = "text",
   placeholder,
+  rightElement = null,
 }) {
   return (
     <div>
@@ -512,8 +526,13 @@ function Field({
           value={value}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-xl border border-zinc-800 bg-[#161619] py-3 pl-11 pr-4 text-xs font-light text-zinc-200 transition-all placeholder:text-zinc-600 focus:border-[#ff003c]/40 focus:outline-none"
+          className={`w-full rounded-xl border border-zinc-800 bg-[#161619] py-3 pl-11 text-xs font-light text-zinc-200 transition-all placeholder:text-zinc-600 focus:border-[#ff003c]/40 focus:outline-none ${
+            rightElement ? "pr-12" : "pr-4"
+          }`}
         />
+        {rightElement && (
+          <div className="absolute right-2 flex items-center">{rightElement}</div>
+        )}
       </div>
     </div>
   );
