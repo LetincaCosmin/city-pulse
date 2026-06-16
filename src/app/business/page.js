@@ -3,6 +3,7 @@ import { MapPin, Search, Star, Store } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { businesses } from "@/data/businesses";
 import { showDemoContent } from "@/data/demo";
+import { calculateBusinessReviewSummary } from "@/lib/businessReviews";
 
 export const dynamic = "force-dynamic";
 
@@ -46,13 +47,52 @@ async function getBusinessList() {
   }
 
   const liveBusinesses = (data || []).map(normalizeBusiness);
+  const liveBusinessIds = liveBusinesses.map((business) => business.id);
+  let reviewMap = new Map();
+
+  if (liveBusinessIds.length > 0) {
+    const { data: reviewRows, error: reviewError } = await supabase
+      .from("business_reviews")
+      .select("business_id, rating")
+      .in("business_id", liveBusinessIds);
+
+    if (reviewError) {
+      console.error(
+        "Eroare la incarcarea ratingurilor business-urilor:",
+        reviewError.message,
+      );
+    } else {
+      reviewMap = (reviewRows || []).reduce((map, review) => {
+        const currentReviews = map.get(review.business_id) || [];
+        currentReviews.push(review);
+        map.set(review.business_id, currentReviews);
+        return map;
+      }, new Map());
+    }
+  }
+
+  const liveBusinessesWithReviews = liveBusinesses.map((business) => {
+    const summary = calculateBusinessReviewSummary(
+      reviewMap.get(business.id) || [],
+      business,
+    );
+
+    return {
+      ...business,
+      rating: summary.ratingLabel,
+      reviews: summary.reviewCount,
+    };
+  });
+
   const mockBusinesses = businesses.map(normalizeBusiness);
-  const liveIds = new Set(liveBusinesses.map((business) => business.id));
+  const liveIds = new Set(
+    liveBusinessesWithReviews.map((business) => business.id),
+  );
   const fallbackMocks = showDemoContent
     ? mockBusinesses.filter((business) => !liveIds.has(business.id))
     : [];
 
-  return [...liveBusinesses, ...fallbackMocks];
+  return [...liveBusinessesWithReviews, ...fallbackMocks];
 }
 
 export default async function BusinessListPage() {
@@ -88,62 +128,66 @@ export default async function BusinessListPage() {
       <section className="space-y-4">
         {businessList.length > 0 ? (
           businessList.map((business) => (
-          <Link
-            key={business.id}
-            href={`/business/${business.id}`}
-            className="relative block overflow-hidden rounded-3xl"
-            style={{
-              backgroundColor: "#101014",
-              border: "1px solid rgba(255,255,255,0.16)",
-              boxShadow: "0 18px 45px rgba(0,0,0,0.38)",
-            }}
-          >
-            <div className="relative h-36 overflow-hidden">
-              <img
-                src={business.cover}
-                alt=""
-                className="absolute inset-0 h-full w-full object-cover opacity-75"
-              />
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_24%,rgba(255,0,60,0.38),transparent_30%)]" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-transparent" />
-              <div className="absolute bottom-4 left-4 flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-black/70 text-sm font-semibold text-[#ff003c] ring-1 ring-[#ff003c]/65">
-                {business.logoUrl ? (
-                  <img
-                    src={business.logoUrl}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  business.logo
-                )}
-              </div>
-            </div>
-
-            <div className="p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="truncate text-lg font-semibold text-white">
-                    {business.name}
-                  </h2>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    {business.category}
-                  </p>
+            <Link
+              key={business.id}
+              href={`/business/${business.id}`}
+              className="relative block overflow-hidden rounded-3xl"
+              style={{
+                backgroundColor: "#101014",
+                border: "1px solid rgba(255,255,255,0.16)",
+                boxShadow: "0 18px 45px rgba(0,0,0,0.38)",
+              }}
+            >
+              <div className="relative h-36 overflow-hidden">
+                <img
+                  src={business.cover}
+                  alt=""
+                  className="absolute inset-0 h-full w-full object-cover opacity-75"
+                />
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_24%,rgba(255,0,60,0.38),transparent_30%)]" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-transparent" />
+                <div className="absolute bottom-4 left-4 flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-black/70 text-sm font-semibold text-[#ff003c] ring-1 ring-[#ff003c]/65">
+                  {business.logoUrl ? (
+                    <img
+                      src={business.logoUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    business.logo
+                  )}
                 </div>
-                <Store size={18} className="mt-1 shrink-0 text-[#ff003c]" />
               </div>
 
-              <div className="mt-3 grid gap-2 text-[11px] text-zinc-400">
-                <span className="flex items-center gap-2">
-                  <Star size={13} className="text-amber-300" fill="currentColor" />
-                  {business.rating} ({business.reviews}) · {business.status}
-                </span>
-                <span className="flex items-center gap-2">
-                  <MapPin size={13} className="text-[#ff003c]" />
-                  {business.address}
-                </span>
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-lg font-semibold text-white">
+                      {business.name}
+                    </h2>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {business.category}
+                    </p>
+                  </div>
+                  <Store size={18} className="mt-1 shrink-0 text-[#ff003c]" />
+                </div>
+
+                <div className="mt-3 grid gap-2 text-[11px] text-zinc-400">
+                  <span className="flex items-center gap-2">
+                    <Star
+                      size={13}
+                      className="text-amber-300"
+                      fill="currentColor"
+                    />
+                    {business.rating} ({business.reviews}) - {business.status}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <MapPin size={13} className="text-[#ff003c]" />
+                    {business.address}
+                  </span>
+                </div>
               </div>
-            </div>
-          </Link>
+            </Link>
           ))
         ) : (
           <div className="rounded-3xl border border-dashed border-zinc-800 p-6 text-center">

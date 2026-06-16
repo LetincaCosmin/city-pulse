@@ -17,6 +17,11 @@ import {
 import { businesses, getBusinessById } from "@/data/businesses";
 import { showDemoContent } from "@/data/demo";
 import { normalizeEvent } from "@/data/events";
+import BusinessReviewsSection from "@/components/BusinessReviewsSection";
+import {
+  calculateBusinessReviewSummary,
+  getAuthorInitial,
+} from "@/lib/businessReviews";
 
 export const dynamic = "force-dynamic";
 
@@ -164,6 +169,70 @@ async function getBusinessEvents(business) {
   return (data || []).map(normalizeEvent);
 }
 
+async function getBusinessReviewsData(business) {
+  const fallbackSummary = calculateBusinessReviewSummary([], business);
+
+  if (!UUID_PATTERN.test(business.id)) {
+    return {
+      reviews: [],
+      summary: fallbackSummary,
+      isLiveBusiness: false,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("business_reviews")
+    .select("id, business_id, user_id, rating, comment, created_at, updated_at")
+    .eq("business_id", business.id)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Eroare la incarcarea recenziilor business:", error.message);
+    return {
+      reviews: [],
+      summary: fallbackSummary,
+      isLiveBusiness: true,
+    };
+  }
+
+  const reviews = data || [];
+  const userIds = [...new Set(reviews.map((review) => review.user_id).filter(Boolean))];
+
+  let profileMap = new Map();
+
+  if (userIds.length > 0) {
+    const { data: profilesData, error: profilesError } = await supabase
+      .from("profiles")
+      .select("id, name, avatar_url")
+      .in("id", userIds);
+
+    if (profilesError) {
+      console.error(
+        "Eroare la incarcarea autorilor recenziilor:",
+        profilesError.message,
+      );
+    } else {
+      profileMap = new Map((profilesData || []).map((profile) => [profile.id, profile]));
+    }
+  }
+
+  return {
+    reviews: reviews.map((review) => {
+      const profile = profileMap.get(review.user_id);
+      const authorName = profile?.name || "Utilizator City Pulse";
+
+      return {
+        ...review,
+        authorName,
+        authorAvatarUrl: profile?.avatar_url || null,
+        authorInitial: getAuthorInitial(authorName),
+      };
+    }),
+    summary: calculateBusinessReviewSummary(reviews, business),
+    isLiveBusiness: true,
+  };
+}
+
 export function generateStaticParams() {
   return showDemoContent ? businesses.map((business) => ({ id: business.id })) : [];
 }
@@ -178,12 +247,18 @@ export default async function BusinessPage({ params }) {
 
   const recentPosts = await getBusinessPosts(business);
   const businessEvents = await getBusinessEvents(business);
+  const reviewData = await getBusinessReviewsData(business);
+  const businessWithReviews = {
+    ...business,
+    rating: reviewData.summary.ratingLabel,
+    reviews: reviewData.summary.reviewCount,
+  };
 
   return (
     <div className="pb-10">
       <header className="relative h-[310px] overflow-hidden">
         <img
-          src={business.cover}
+          src={businessWithReviews.cover}
           alt=""
           className="absolute inset-0 h-full w-full object-cover opacity-80"
         />
@@ -205,31 +280,31 @@ export default async function BusinessPage({ params }) {
         <div className="absolute bottom-5 left-5 right-5">
           <div className="mb-4 flex items-end gap-4">
             <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl bg-black/70 text-lg font-semibold tracking-wide text-[#ff003c] ring-1 ring-[#ff003c]/75">
-              {business.logoUrl ? (
+              {businessWithReviews.logoUrl ? (
                 <img
-                  src={business.logoUrl}
+                  src={businessWithReviews.logoUrl}
                   alt=""
                   className="h-full w-full object-cover"
                 />
               ) : (
-                business.logo
+                businessWithReviews.logo
               )}
             </div>
             <div className="min-w-0 flex-1">
               <div className="mb-1 flex items-center gap-2">
                 <h1 className="truncate text-2xl font-semibold leading-tight text-white">
-                  {business.name}
+                  {businessWithReviews.name}
                 </h1>
                 <span className="h-2 w-2 rounded-full bg-[#ff003c]" />
               </div>
-              <p className="text-sm text-zinc-300">{business.category}</p>
+              <p className="text-sm text-zinc-300">{businessWithReviews.category}</p>
               <div className="mt-2 flex items-center gap-3 text-xs">
                 <span className="flex items-center gap-1 text-amber-300">
                   <Star size={14} fill="currentColor" />
-                  {business.rating}
-                  <span className="text-zinc-500">({business.reviews})</span>
+                  {businessWithReviews.rating}
+                  <span className="text-zinc-500">({businessWithReviews.reviews})</span>
                 </span>
-                <span className="text-emerald-400">{business.status}</span>
+                <span className="text-emerald-400">{businessWithReviews.status}</span>
               </div>
             </div>
           </div>
@@ -268,7 +343,7 @@ export default async function BusinessPage({ params }) {
                 <Clock size={15} className="text-[#ff003c]" />
                 Program
               </span>
-              <span className="text-zinc-200">{business.schedule}</span>
+              <span className="text-zinc-200">{businessWithReviews.schedule}</span>
             </span>
             <span className="flex items-center justify-between gap-3">
               <span className="flex items-center gap-2">
@@ -276,7 +351,7 @@ export default async function BusinessPage({ params }) {
                 Adresa
               </span>
               <span className="max-w-[60%] text-right text-zinc-200">
-                {business.address}
+                {businessWithReviews.address}
               </span>
             </span>
             <span className="flex items-center justify-between gap-3">
@@ -284,14 +359,14 @@ export default async function BusinessPage({ params }) {
                 <AtSign size={15} className="text-[#ff003c]" />
                 Instagram
               </span>
-              <span className="text-zinc-200">{business.instagram}</span>
+              <span className="text-zinc-200">{businessWithReviews.instagram}</span>
             </span>
             <span className="flex items-center justify-between gap-3">
               <span className="flex items-center gap-2">
                 <Globe size={15} className="text-[#ff003c]" />
                 Website
               </span>
-              <span className="text-zinc-200">{business.website}</span>
+              <span className="text-zinc-200">{businessWithReviews.website}</span>
             </span>
           </div>
         </section>
@@ -317,10 +392,10 @@ export default async function BusinessPage({ params }) {
         <section className="mb-6">
           <h2 className="mb-3 text-base font-semibold text-white">Despre</h2>
           <p className="text-sm font-light leading-relaxed text-zinc-400">
-            {business.description}
+            {businessWithReviews.description}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            {business.vibe.map((tag) => (
+            {businessWithReviews.vibe.map((tag) => (
               <span
                 key={tag}
                 className="rounded-full bg-[#ff003c]/10 px-3 py-1 text-[11px] text-[#ff003c] ring-1 ring-[#ff003c]/20"
@@ -394,7 +469,7 @@ export default async function BusinessPage({ params }) {
             <span className="text-[11px] text-zinc-500">Active acum</span>
           </div>
           <div className="space-y-3">
-            {business.offers.map((offer) => (
+            {businessWithReviews.offers.map((offer) => (
               <div
                 key={offer}
                 className="rounded-2xl bg-[#101014] p-4 ring-1 ring-white/10"
@@ -432,7 +507,7 @@ export default async function BusinessPage({ params }) {
                     <CalendarDays size={16} className="shrink-0 text-[#ff003c]" />
                   </Link>
                 ))
-              : business.events.map((event) => (
+              : businessWithReviews.events.map((event) => (
                   <div
                     key={event}
                     className="flex items-center justify-between rounded-2xl bg-[#101014] px-4 py-3 ring-1 ring-white/10"
@@ -444,16 +519,28 @@ export default async function BusinessPage({ params }) {
           </div>
         </section>
 
+        <BusinessReviewsSection
+          businessId={businessWithReviews.id}
+          businessName={businessWithReviews.name}
+          businessOwnerId={businessWithReviews.id}
+          initialReviews={reviewData.reviews}
+          fallbackSummary={{
+            rating: business.rating,
+            reviews: business.reviews,
+          }}
+          isLiveBusiness={reviewData.isLiveBusiness}
+        />
+
         <section>
           <h2 className="mb-3 text-base font-semibold text-white">Poze</h2>
           <div className="grid grid-cols-3 gap-3">
-            {business.gallery.map((item) => (
+            {businessWithReviews.gallery.map((item) => (
               <div
                 key={item}
                 className="relative h-24 overflow-hidden rounded-2xl ring-1 ring-white/10"
               >
                 <img
-                  src={business.cover}
+                  src={businessWithReviews.cover}
                   alt=""
                   className="absolute inset-0 h-full w-full object-cover opacity-70"
                 />

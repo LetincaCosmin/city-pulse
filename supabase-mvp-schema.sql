@@ -212,6 +212,40 @@ alter table public.notification_reads
   add column if not exists user_id uuid references auth.users(id) on delete cascade,
   add column if not exists read_at timestamptz not null default now();
 
+create table if not exists public.business_reviews (
+  id uuid primary key default gen_random_uuid(),
+  business_id uuid not null references public.businesses(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  rating integer not null check (rating between 1 and 5),
+  comment text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (business_id, user_id)
+);
+
+alter table public.business_reviews
+  add column if not exists business_id uuid references public.businesses(id) on delete cascade,
+  add column if not exists user_id uuid references auth.users(id) on delete cascade,
+  add column if not exists rating integer not null default 5,
+  add column if not exists comment text not null default '',
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
+do $$
+begin
+  alter table public.business_reviews
+    add constraint business_reviews_rating_check check (rating between 1 and 5);
+exception
+  when duplicate_object then null;
+end;
+$$;
+
+create unique index if not exists business_reviews_business_user_idx
+on public.business_reviews (business_id, user_id);
+
+create index if not exists business_reviews_business_created_idx
+on public.business_reviews (business_id, created_at desc);
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -250,6 +284,7 @@ alter table public.events enable row level security;
 alter table public.event_participants enable row level security;
 alter table public.notifications enable row level security;
 alter table public.notification_reads enable row level security;
+alter table public.business_reviews enable row level security;
 
 drop policy if exists "profiles_select_public" on public.profiles;
 create policy "profiles_select_public"
@@ -376,6 +411,33 @@ on public.notification_reads for update
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
+drop policy if exists "business_reviews_select_public" on public.business_reviews;
+create policy "business_reviews_select_public"
+on public.business_reviews for select
+using (true);
+
+drop policy if exists "business_reviews_insert_own" on public.business_reviews;
+create policy "business_reviews_insert_own"
+on public.business_reviews for insert
+with check (
+  auth.uid() = user_id
+  and auth.uid() <> business_id
+);
+
+drop policy if exists "business_reviews_update_own" on public.business_reviews;
+create policy "business_reviews_update_own"
+on public.business_reviews for update
+using (auth.uid() = user_id)
+with check (
+  auth.uid() = user_id
+  and auth.uid() <> business_id
+);
+
+drop policy if exists "business_reviews_delete_own" on public.business_reviews;
+create policy "business_reviews_delete_own"
+on public.business_reviews for delete
+using (auth.uid() = user_id);
+
 drop policy if exists "avatars_select_public" on storage.objects;
 create policy "avatars_select_public"
 on storage.objects for select
@@ -501,4 +563,9 @@ for each row execute function public.set_updated_at();
 drop trigger if exists events_set_updated_at on public.events;
 create trigger events_set_updated_at
 before update on public.events
+for each row execute function public.set_updated_at();
+
+drop trigger if exists business_reviews_set_updated_at on public.business_reviews;
+create trigger business_reviews_set_updated_at
+before update on public.business_reviews
 for each row execute function public.set_updated_at();
