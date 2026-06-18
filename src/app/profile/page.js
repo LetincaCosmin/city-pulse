@@ -8,15 +8,18 @@ import {
   Bookmark,
   CalendarDays,
   Camera,
+  Check,
   FileText,
   Heart,
   Loader2,
   LogOut,
   Mail,
   MapPin,
+  PenSquare,
   ShieldCheck,
   Store,
   Ticket,
+  X,
 } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
@@ -25,15 +28,62 @@ import { legalInfo } from "@/data/legal";
 import { supabase } from "@/lib/supabase";
 import imageCompression from "browser-image-compression";
 
+function splitPostText(text = "") {
+  const [firstLine, ...rest] = text.split("\n").filter(Boolean);
+
+  return {
+    title: firstLine || "Update local",
+    body: rest.join("\n") || text,
+  };
+}
+
+function formatSavedDate(value) {
+  if (!value) return "salvat recent";
+
+  try {
+    return new Intl.DateTimeFormat("ro-RO", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }).format(new Date(value));
+  } catch {
+    return "salvat recent";
+  }
+}
+
+function getSupabaseErrorMessage(error) {
+  return error?.message || error?.details || "Eroare necunoscuta";
+}
+
+function normalizeDisplayText(value) {
+  if (typeof value !== "string") return "";
+
+  return value
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const { user, logout, refreshUser } = useAuth();
   const [participatingEvents, setParticipatingEvents] = useState([]);
+  const [savedPosts, setSavedPosts] = useState([]);
+  const [savedBusinesses, setSavedBusinesses] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   const [avatarPreview, setAvatarPreview] = useState("");
   const [avatarMessage, setAvatarMessage] = useState("");
   const [isAvatarUploading, setIsAvatarUploading] = useState(false);
+  const [profileDetails, setProfileDetails] = useState(null);
+  const [profileForm, setProfileForm] = useState(() => ({
+    name: user?.name || "",
+    bio: user?.bio || "",
+  }));
+  const [profileMessage, setProfileMessage] = useState("");
+  const [isProfileSaving, setIsProfileSaving] = useState(false);
+  const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);
+  const [pendingRemoveKey, setPendingRemoveKey] = useState("");
 
   useEffect(() => {
     if (!user) {
@@ -49,27 +99,98 @@ export default function ProfilePage() {
     let isMounted = true;
 
     async function fetchProfileData() {
-      const { data, error } = await supabase
-        .from("event_participants")
-        .select("created_at, events(*)")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+      const [
+        profileResult,
+        eventsResult,
+        savedPostsResult,
+        savedBusinessesResult,
+      ] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("name, bio, avatar_url")
+          .eq("id", user.id)
+          .maybeSingle(),
+        supabase
+          .from("event_participants")
+          .select("created_at, events(*)")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("post_saves")
+          .select("created_at, posts(id, business_id, business_name, tag, text, image, created_at)")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("business_saves")
+          .select("created_at, businesses(id, name, category, location_name, image_url, logo_url)")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false }),
+      ]);
 
       if (!isMounted) return;
 
-      if (error) {
-        console.error("Eroare la incarcarea profilului:", error);
-        setErrorMsg("Nu am putut incarca evenimentele tale acum.");
-        setParticipatingEvents([]);
-      } else {
-        const events = (data || [])
-          .map((item) => item.events)
-          .filter(Boolean)
-          .map(normalizeEvent);
+      const criticalProfileError = profileResult.error || eventsResult.error;
+      const optionalProfileError =
+        savedPostsResult.error || savedBusinessesResult.error;
 
+      if (criticalProfileError) {
+        console.warn(
+          "Eroare la incarcarea profilului:",
+          getSupabaseErrorMessage(criticalProfileError),
+        );
+        setErrorMsg("Nu am putut incarca toate datele profilului acum.");
+      } else {
         setErrorMsg("");
-        setParticipatingEvents(events);
       }
+
+      if (optionalProfileError) {
+        console.warn(
+          "Unele date optionale ale profilului nu sunt disponibile:",
+          getSupabaseErrorMessage(optionalProfileError),
+        );
+      }
+
+      if (profileResult.data) {
+        setProfileDetails(profileResult.data);
+        setProfileForm((currentForm) => ({
+          name:
+            currentForm.name ||
+            profileResult.data.name ||
+            user.name ||
+            user.email?.split("@")[0] ||
+            "",
+          bio: currentForm.bio || profileResult.data.bio || user.bio || "",
+        }));
+      }
+
+      const events = (eventsResult.data || [])
+        .map((item) => item.events)
+        .filter(Boolean)
+        .map(normalizeEvent);
+      const nextSavedPosts = (savedPostsResult.data || [])
+        .map((item) =>
+          item.posts
+            ? {
+                ...item.posts,
+                savedAt: item.created_at,
+              }
+            : null,
+        )
+        .filter(Boolean);
+      const nextSavedBusinesses = (savedBusinessesResult.data || [])
+        .map((item) =>
+          item.businesses
+            ? {
+                ...item.businesses,
+                savedAt: item.created_at,
+              }
+            : null,
+        )
+        .filter(Boolean);
+
+      setParticipatingEvents(events);
+      setSavedPosts(nextSavedPosts);
+      setSavedBusinesses(nextSavedBusinesses);
 
       setLoadingData(false);
     }
@@ -88,15 +209,31 @@ export default function ProfilePage() {
         value: participatingEvents.length,
         icon: CalendarDays,
       },
-      { label: "Salvate", value: 0, icon: Bookmark },
-      { label: "Favorite", value: 0, icon: Heart },
+      { label: "Salvate", value: savedPosts.length, icon: Bookmark },
+      { label: "Favorite", value: savedBusinesses.length, icon: Heart },
     ],
-    [participatingEvents.length],
+    [participatingEvents.length, savedBusinesses.length, savedPosts.length],
   );
 
   const handleLogout = async () => {
     await logout();
     router.push("/login");
+  };
+
+  const openProfileEditor = () => {
+    if (!user) return;
+
+    setProfileMessage("");
+    setProfileForm({
+      name: profileDetails?.name || user.name || "",
+      bio: profileDetails?.bio || user.bio || "",
+    });
+    setIsProfileEditorOpen(true);
+  };
+
+  const closeProfileEditor = () => {
+    if (isProfileSaving) return;
+    setIsProfileEditorOpen(false);
   };
 
   const handleAvatarUpload = async (event) => {
@@ -141,10 +278,16 @@ export default function ProfilePage() {
       const { error: profileError } = await supabase.from("profiles").upsert(
         {
           id: user.id,
-          name: user.name,
+          name:
+            profileDetails?.name ||
+            user.name ||
+            profileForm.name.trim() ||
+            user.email?.split("@")[0] ||
+            "Cont local",
           role: user.role || "user",
           category: user.category || null,
           avatar_url: avatarUrl,
+          bio: profileDetails?.bio || user.bio || "",
         },
         { onConflict: "id" },
       );
@@ -152,6 +295,10 @@ export default function ProfilePage() {
       if (profileError) throw profileError;
 
       setAvatarPreview(avatarUrl);
+      setProfileDetails((currentProfile) => ({
+        ...(currentProfile || {}),
+        avatar_url: avatarUrl,
+      }));
       setAvatarMessage("Poza salvata.");
       setIsAvatarUploading(false);
       void refreshUser();
@@ -162,52 +309,173 @@ export default function ProfilePage() {
     }
   };
 
+  const handleProfileSave = async (event) => {
+    event.preventDefault();
+
+    if (!user) return;
+
+    const trimmedName = profileForm.name.trim();
+    const trimmedBio = profileForm.bio.trim();
+
+    if (!trimmedName) {
+      setProfileMessage("Introdu un nume afisat.");
+      return;
+    }
+
+    setIsProfileSaving(true);
+    setProfileMessage("");
+
+    try {
+      const { error } = await supabase.from("profiles").upsert(
+        {
+          id: user.id,
+          name: trimmedName,
+          role: user.role || "user",
+          category: user.category || null,
+          avatar_url: user.avatarUrl || null,
+          bio: trimmedBio,
+        },
+        { onConflict: "id" },
+      );
+
+      if (error) throw error;
+
+      setProfileMessage("Profilul a fost actualizat.");
+      setProfileDetails((currentProfile) => ({
+        ...(currentProfile || {}),
+        name: trimmedName,
+        bio: trimmedBio,
+        avatar_url: user.avatarUrl || currentProfile?.avatar_url || null,
+      }));
+      await refreshUser();
+      setIsProfileEditorOpen(false);
+    } catch (err) {
+      console.error("Nu am putut salva profilul:", err);
+      setProfileMessage("Nu am putut salva profilul acum.");
+    } finally {
+      setIsProfileSaving(false);
+    }
+  };
+
+  const handleRemoveSavedPost = async (postId) => {
+    if (!user?.id || !postId) return;
+
+    setPendingRemoveKey(`post-${postId}`);
+
+    const { error } = await supabase
+      .from("post_saves")
+      .delete()
+      .eq("post_id", postId)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Nu am putut elimina postarea salvata:", error);
+      setErrorMsg("Nu am putut actualiza lista de salvate.");
+      setPendingRemoveKey("");
+      return;
+    }
+
+    setSavedPosts((currentPosts) =>
+      currentPosts.filter((post) => post.id !== postId),
+    );
+    setPendingRemoveKey("");
+  };
+
+  const handleRemoveSavedBusiness = async (businessId) => {
+    if (!user?.id || !businessId) return;
+
+    setPendingRemoveKey(`business-${businessId}`);
+
+    const { error } = await supabase
+      .from("business_saves")
+      .delete()
+      .eq("business_id", businessId)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Nu am putut elimina business-ul salvat:", error);
+      setErrorMsg("Nu am putut actualiza locurile favorite.");
+      setPendingRemoveKey("");
+      return;
+    }
+
+    setSavedBusinesses((currentBusinesses) =>
+      currentBusinesses.filter((business) => business.id !== businessId),
+    );
+    setPendingRemoveKey("");
+  };
+
   if (!user || user.role === "business") {
     return null;
   }
 
-  const avatarImageUrl = avatarPreview || user.avatarUrl;
+  const profileAvatarUrl =
+    typeof profileDetails?.avatar_url === "string"
+      ? profileDetails.avatar_url
+      : "";
+  const avatarImageUrl = avatarPreview || profileAvatarUrl || user.avatarUrl;
+  const trimmedProfileName = normalizeDisplayText(profileDetails?.name);
+  const trimmedUserName = normalizeDisplayText(user.name);
+  const trimmedFormName = normalizeDisplayText(profileForm.name);
+  const emailDisplayName = normalizeDisplayText(user.email?.split("@")[0]);
+  const displayName =
+    trimmedProfileName ||
+    trimmedUserName ||
+    trimmedFormName ||
+    emailDisplayName ||
+    "Cont local";
+  const displayBio =
+    typeof profileDetails?.bio === "string" ? profileDetails.bio : user.bio || "";
+  const avatarInitial = displayName.charAt(0).toUpperCase() || "U";
 
   return (
-    <div className="min-h-screen bg-[#09090b] px-4 pt-8 pb-28 text-white sm:px-6 md:pb-10">
-      <header className="mb-7">
-        <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.45em] text-[#ff003c]">
-          Cont local
-        </p>
-        <div className="flex items-start justify-between gap-4">
+    <div className="min-h-screen bg-[#09090b] px-4 pt-6 pb-28 text-white sm:px-6 md:pb-10">
+      <header className="mb-4">
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Profil</h1>
-            <p className="mt-2 max-w-[300px] text-sm leading-relaxed text-zinc-500">
-              Locul tau pentru evenimente, salvate si activitatea din oras.
+            <p className="text-[10px] font-bold uppercase tracking-[0.38em] text-[#ff003c]">
+              Cont local
             </p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight">Profil</h1>
           </div>
-          <button
-            onClick={handleLogout}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-zinc-800 bg-zinc-950/80 text-zinc-400 transition hover:border-[#ff003c]/50 hover:text-[#ff003c]"
-            aria-label="Delogare"
-          >
-            <LogOut size={18} strokeWidth={1.7} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={openProfileEditor}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950/80 px-3.5 text-sm font-semibold text-zinc-300 transition hover:border-[#ff003c]/50 hover:text-white"
+            >
+              <PenSquare size={16} className="text-[#ff003c]" />
+              <span className="hidden sm:inline">Editeaza profil</span>
+              <span className="sm:hidden">Editeaza</span>
+            </button>
+            <button
+              onClick={handleLogout}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-zinc-800 bg-zinc-950/80 text-zinc-400 transition hover:border-[#ff003c]/50 hover:text-[#ff003c]"
+              aria-label="Delogare"
+            >
+              <LogOut size={18} strokeWidth={1.7} />
+            </button>
+          </div>
         </div>
       </header>
 
       <section className="overflow-hidden rounded-[28px] border border-zinc-800/90 bg-zinc-950/80 shadow-[0_0_35px_rgba(0,0,0,0.45)]">
-        <div className="relative h-32 bg-[radial-gradient(circle_at_25%_20%,rgba(255,0,60,0.35),transparent_32%),linear-gradient(135deg,#141418,#060607)]">
-          <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-zinc-950 to-transparent" />
+        <div className="relative h-28 bg-[radial-gradient(circle_at_25%_20%,rgba(255,0,60,0.35),transparent_32%),linear-gradient(135deg,#141418,#060607)]">
+          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-zinc-950 to-transparent" />
         </div>
-        <div className="-mt-11 px-5 pb-5">
-          <div className="relative mb-4 flex items-end justify-between gap-4">
+        <div className="-mt-9 px-4 pb-4 sm:px-5">
+          <div className="relative z-10 grid grid-cols-[72px_minmax(0,1fr)] items-center gap-3">
             <div>
               <label
                 htmlFor="avatar-upload"
-                className="group relative grid h-20 w-20 cursor-pointer place-items-center overflow-hidden rounded-[24px] border border-[#ff003c]/80 bg-black bg-cover bg-center text-2xl font-bold text-[#ff003c] shadow-[0_0_24px_rgba(255,0,60,0.25)]"
+                className="group relative grid h-[72px] w-[72px] cursor-pointer place-items-center overflow-hidden rounded-[22px] border border-[#ff003c]/80 bg-black bg-cover bg-center text-xl font-bold text-[#ff003c] shadow-[0_0_24px_rgba(255,0,60,0.25)]"
                 style={
                   avatarImageUrl
                     ? { backgroundImage: `url(${avatarImageUrl})` }
                     : undefined
                 }
               >
-                {avatarImageUrl ? null : user.avatar || "U"}
+                {avatarImageUrl ? null : avatarInitial}
                 <span className="absolute inset-0 grid place-items-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/55 group-hover:opacity-100">
                   {isAvatarUploading ? (
                     <Loader2
@@ -229,32 +497,56 @@ export default function ProfilePage() {
                 onChange={handleAvatarUpload}
               />
             </div>
-            <span className="rounded-full border border-[#ff003c]/40 bg-[#ff003c]/10 px-3 py-1 text-[11px] font-semibold text-[#ff003c]">
-              User
-            </span>
+
+            <div className="relative z-10 flex h-[72px] min-w-0 flex-col justify-center rounded-[22px] border border-white/10 bg-zinc-950/90 px-3.5 shadow-[0_8px_20px_rgba(0,0,0,0.24)] ring-1 ring-white/[0.04]">
+              <p
+                data-profile-display-name={displayName}
+                className="max-w-full truncate text-2xl font-extrabold leading-tight text-white"
+              >
+                {displayName}
+              </p>
+              <p className="mt-1 truncate text-sm text-zinc-500">
+                {user.email}
+              </p>
+            </div>
           </div>
 
-          <h2 className="text-2xl font-bold">{user.name}</h2>
-          <p className="mt-1 text-sm text-zinc-500">{user.email}</p>
-          {avatarMessage ? (
-            <p className="mt-2 text-xs text-zinc-500">{avatarMessage}</p>
+          <div className="mt-3 max-w-[460px] rounded-3xl border border-white/10 bg-black/30 p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#ff003c]">
+              Bio
+            </p>
+            <p
+              className={`mt-2 text-sm leading-relaxed ${
+                displayBio ? "text-zinc-300" : "text-zinc-500"
+              }`}
+            >
+              {displayBio ||
+                "Adauga cateva randuri despre tine si cum folosesti City Pulse."}
+            </p>
+          </div>
+
+          {avatarMessage || profileMessage ? (
+            <div className="mt-2 space-y-1 text-xs text-zinc-500">
+              {avatarMessage ? <p>{avatarMessage}</p> : null}
+              {profileMessage ? <p>{profileMessage}</p> : null}
+            </div>
           ) : null}
 
-          <div className="mt-5 grid grid-cols-3 gap-2">
+          <div className="mt-3 grid grid-cols-3 gap-2">
             {stats.map((stat) => {
               const Icon = stat.icon;
               return (
                 <div
                   key={stat.label}
-                  className="rounded-2xl border border-zinc-800/80 bg-black/40 p-3"
+                  className="rounded-2xl border border-zinc-800/80 bg-black/40 p-2.5"
                 >
                   <Icon
-                    className="mb-3 text-[#ff003c]"
-                    size={17}
+                    className="text-[#ff003c]"
+                    size={15}
                     strokeWidth={1.8}
                   />
-                  <p className="text-xl font-bold">{stat.value}</p>
-                  <p className="mt-0.5 text-[11px] text-zinc-500">
+                  <p className="mt-2 text-lg font-bold">{stat.value}</p>
+                  <p className="mt-0.5 text-[10px] text-zinc-500">
                     {stat.label}
                   </p>
                 </div>
@@ -346,21 +638,195 @@ export default function ProfilePage() {
         )}
       </section>
 
-      <section className="mt-8 grid grid-cols-1 gap-3">
-        <div className="rounded-3xl border border-zinc-800/80 bg-zinc-950/70 p-5">
-          <Bookmark className="mb-4 text-[#ff003c]" size={21} />
-          <h3 className="font-bold">Salvate</h3>
-          <p className="mt-2 text-sm leading-relaxed text-zinc-500">
-            Aici vom lega postarile si locurile salvate in etapa urmatoare.
-          </p>
+      <section className="mt-8">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold">Salvate</h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              Postari pe care vrei sa le gasesti din nou rapid.
+            </p>
+          </div>
+          <Link
+            href="/"
+            className="flex items-center gap-1 text-xs font-semibold text-[#ff003c]"
+          >
+            Feed
+            <ArrowUpRight size={14} />
+          </Link>
         </div>
-        <div className="rounded-3xl border border-zinc-800/80 bg-zinc-950/70 p-5">
-          <Store className="mb-4 text-[#ff003c]" size={21} />
-          <h3 className="font-bold">Locuri favorite</h3>
-          <p className="mt-2 text-sm leading-relaxed text-zinc-500">
-            Cafenele, servicii, magazine si business-uri locale favorite.
-          </p>
+
+        {loadingData ? (
+          <div className="rounded-3xl border border-zinc-800/80 bg-zinc-950/70 p-5 text-sm text-zinc-500">
+            Se incarca salvarile...
+          </div>
+        ) : savedPosts.length > 0 ? (
+          <div className="space-y-3">
+            {savedPosts.map((post) => {
+              const postText = splitPostText(post.text);
+              const businessHref = post.business_id ? `/business/${post.business_id}` : "/";
+
+              return (
+                <div
+                  key={post.id}
+                  className="rounded-3xl border border-zinc-800/80 bg-zinc-950/70 p-4"
+                >
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <Link
+                        href={businessHref}
+                        className="truncate text-xs font-semibold text-[#ff003c]"
+                      >
+                        {post.business_name || "Business local"}
+                      </Link>
+                      <p className="mt-1 text-[11px] text-zinc-600">
+                        Salvat pe {formatSavedDate(post.savedAt)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleRemoveSavedPost(post.id)}
+                      disabled={pendingRemoveKey === `post-${post.id}`}
+                      className="grid h-9 w-9 place-items-center rounded-2xl border border-zinc-800 bg-black/40 text-[#ff003c] transition hover:border-[#ff003c]/50 disabled:opacity-50"
+                    >
+                      <Bookmark size={15} fill="currentColor" />
+                    </button>
+                  </div>
+
+                  {post.tag ? (
+                    <span className="rounded-full bg-[#ff003c]/10 px-2.5 py-1 text-[10px] font-semibold text-[#ff003c] ring-1 ring-[#ff003c]/20">
+                      {post.tag}
+                    </span>
+                  ) : null}
+
+                  <Link href={`/#post-${post.id}`} className="mt-3 block">
+                    <h3 className="text-base font-bold text-white transition hover:text-[#ff003c]">
+                      {postText.title}
+                    </h3>
+                    {postText.body ? (
+                      <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-zinc-500">
+                        {postText.body}
+                      </p>
+                    ) : null}
+                    {post.image ? (
+                      <div className="mt-3 overflow-hidden rounded-2xl border border-zinc-800 bg-black/40">
+                        <img
+                          src={post.image}
+                          alt={postText.title}
+                          className="h-40 w-full object-cover"
+                        />
+                      </div>
+                    ) : null}
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-3xl border border-zinc-800/80 bg-zinc-950/70 p-5">
+            <Bookmark className="mb-4 text-[#ff003c]" size={21} />
+            <h3 className="font-bold">Nu ai postari salvate</h3>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+              Apasa pe bookmark in feed ca sa pastrezi postarile importante.
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section className="mt-8">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold">Locuri favorite</h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              Business-uri locale pe care vrei sa le ai aproape.
+            </p>
+          </div>
+          <Link
+            href="/business"
+            className="flex items-center gap-1 text-xs font-semibold text-[#ff003c]"
+          >
+            Exploreaza
+            <ArrowUpRight size={14} />
+          </Link>
         </div>
+
+        {loadingData ? (
+          <div className="rounded-3xl border border-zinc-800/80 bg-zinc-950/70 p-5 text-sm text-zinc-500">
+            Se incarca locurile favorite...
+          </div>
+        ) : savedBusinesses.length > 0 ? (
+          <div className="space-y-3">
+            {savedBusinesses.map((business) => {
+              const businessLogo = business.logo_url || business.image_url || null;
+              const businessInitials =
+                business.name
+                  ?.split(" ")
+                  .map((word) => word[0])
+                  .join("")
+                  .slice(0, 3)
+                  .toUpperCase() || "CP";
+
+              return (
+                <div
+                  key={business.id}
+                  className="rounded-3xl border border-zinc-800/80 bg-zinc-950/70 p-4"
+                >
+                  <div className="flex items-start gap-3">
+                    <Link
+                      href={`/business/${business.id}`}
+                      className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-zinc-800 bg-black/40 text-sm font-bold text-[#ff003c]"
+                    >
+                      {businessLogo ? (
+                        <img
+                          src={businessLogo}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        businessInitials
+                      )}
+                    </Link>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <Link
+                            href={`/business/${business.id}`}
+                            className="truncate text-base font-bold text-white transition hover:text-[#ff003c]"
+                          >
+                            {business.name}
+                          </Link>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            {business.category || "Business local"}
+                          </p>
+                          <p className="mt-2 text-[11px] text-zinc-600">
+                            {business.location_name || "Resita"} - salvat pe{" "}
+                            {formatSavedDate(business.savedAt)}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleRemoveSavedBusiness(business.id)}
+                          disabled={pendingRemoveKey === `business-${business.id}`}
+                          className="grid h-9 w-9 place-items-center rounded-2xl border border-zinc-800 bg-black/40 text-[#ff003c] transition hover:border-[#ff003c]/50 disabled:opacity-50"
+                        >
+                          <Heart size={15} fill="currentColor" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-3xl border border-zinc-800/80 bg-zinc-950/70 p-5">
+            <Store className="mb-4 text-[#ff003c]" size={21} />
+            <h3 className="font-bold">Nu ai locuri favorite inca</h3>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+              Intra pe pagina unui business si apasa pe &quot;Salveaza&quot;.
+            </p>
+          </div>
+        )}
       </section>
 
       <section className="mt-8 rounded-3xl border border-zinc-800/80 bg-zinc-950/70 p-5">
@@ -393,6 +859,101 @@ export default function ProfilePage() {
           </a>
         </div>
       </section>
+
+      {isProfileEditorOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-md rounded-[28px] border border-zinc-800 bg-[#111113] p-5 shadow-[0_0_35px_rgba(0,0,0,0.45)]">
+            <button
+              type="button"
+              onClick={closeProfileEditor}
+              disabled={isProfileSaving}
+              className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-2xl border border-white/10 bg-black/30 text-zinc-500 transition hover:text-white disabled:opacity-50"
+              aria-label="Inchide editorul"
+            >
+              <X size={16} />
+            </button>
+
+            <div className="pr-12">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#ff003c]">
+                Profil public
+              </p>
+              <h2 className="mt-2 text-xl font-bold">Editeaza bio-ul</h2>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+                Numele si bio-ul apar in profilul tau si in interactiunile publice.
+              </p>
+            </div>
+
+            <form onSubmit={handleProfileSave} className="mt-5 space-y-4">
+              <div>
+                <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                  Nume afisat
+                </label>
+                <input
+                  type="text"
+                  value={profileForm.name}
+                  maxLength={50}
+                  onChange={(event) =>
+                    setProfileForm((currentForm) => ({
+                      ...currentForm,
+                      name: event.target.value,
+                    }))
+                  }
+                  className="h-12 w-full rounded-2xl border border-zinc-800 bg-black/30 px-4 text-sm text-white outline-none transition focus:border-[#ff003c]/60"
+                  placeholder="Cum vrei sa apari in City Pulse"
+                  disabled={isProfileSaving}
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                  Bio
+                </label>
+                <textarea
+                  value={profileForm.bio}
+                  maxLength={240}
+                  rows={4}
+                  onChange={(event) =>
+                    setProfileForm((currentForm) => ({
+                      ...currentForm,
+                      bio: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded-2xl border border-zinc-800 bg-black/30 px-4 py-3 text-sm leading-relaxed text-white outline-none transition focus:border-[#ff003c]/60"
+                  placeholder="Cateva randuri despre tine, ce iti place in oras sau ce cauti pe City Pulse."
+                  disabled={isProfileSaving}
+                />
+                <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-zinc-600">
+                  <span>Scurt, clar si personal.</span>
+                  <span>{profileForm.bio.length}/240</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={closeProfileEditor}
+                  disabled={isProfileSaving}
+                  className="inline-flex h-11 items-center rounded-2xl border border-white/10 bg-black/30 px-4 text-sm font-semibold text-zinc-300 transition hover:text-white disabled:opacity-50"
+                >
+                  Anuleaza
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProfileSaving}
+                  className="inline-flex h-11 items-center gap-2 rounded-2xl bg-[#ff003c] px-5 text-sm font-semibold text-white shadow-[0_0_20px_rgba(255,0,60,0.2)] disabled:opacity-60"
+                >
+                  {isProfileSaving ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Check size={16} />
+                  )}
+                  <span>Salveaza</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

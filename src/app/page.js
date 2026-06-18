@@ -35,6 +35,15 @@ import {
   normalizeEvent,
 } from "@/data/events";
 import { createNotification } from "@/lib/notifications";
+import {
+  getPostLikeLabel,
+  normalizePostLikeState,
+  normalizePostsLikeState,
+} from "@/lib/postLikes";
+import {
+  normalizePostSaveState,
+  normalizePostsSaveState,
+} from "@/lib/postSaves";
 import { supabase } from "@/lib/supabase";
 import imageCompression from "browser-image-compression";
 
@@ -145,6 +154,8 @@ export default function Home() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [pendingLikeIds, setPendingLikeIds] = useState([]);
+  const [pendingSaveIds, setPendingSaveIds] = useState([]);
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -242,14 +253,38 @@ export default function Home() {
 
   useEffect(() => {
     async function fetchPosts() {
-      try {
-        const { data, error } = await supabase
-          .from("posts")
-          .select("*")
-          .order("created_at", { ascending: false });
+      setLoading(true);
 
-        if (error) throw error;
-        setPosts(data || []);
+      try {
+        const [postsResult, savesResult] = await Promise.all([
+          supabase
+            .from("posts")
+            .select("*, post_likes(user_id)")
+            .order("created_at", { ascending: false }),
+          user?.id
+            ? supabase
+                .from("post_saves")
+                .select("post_id")
+                .eq("user_id", user.id)
+            : Promise.resolve({ data: [], error: null }),
+        ]);
+
+        if (postsResult.error) throw postsResult.error;
+        if (savesResult.error) throw savesResult.error;
+
+        const savedPostIds = new Set((savesResult.data || []).map((save) => save.post_id));
+        const normalizedPosts = normalizePostsSaveState(
+          normalizePostsLikeState(
+            (postsResult.data || []).map((post) => ({
+              ...post,
+              post_saves: savedPostIds.has(post.id) && user?.id ? [{ user_id: user.id }] : [],
+            })),
+            user?.id || null,
+          ),
+          user?.id || null,
+        );
+
+        setPosts(normalizedPosts);
       } catch (err) {
         console.error("Eroare la incarcarea postarilor:", err.message);
       } finally {
@@ -258,7 +293,7 @@ export default function Home() {
     }
 
     fetchPosts();
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     async function fetchBusinesses() {
@@ -475,7 +510,13 @@ export default function Home() {
 
       if (error) throw error;
       if (data?.[0]) {
-        setPosts([data[0], ...posts]);
+        setPosts((currentPosts) => [
+          normalizePostSaveState(
+            normalizePostLikeState(data[0], user?.id || null),
+            user?.id || null,
+          ),
+          ...currentPosts,
+        ]);
         await createNotification({
           targetRole: "user",
           actorId: user?.id || null,
@@ -597,6 +638,153 @@ export default function Home() {
     } catch (err) {
       alert("Eroare la publicarea evenimentului: " + err.message);
       setIsUploading(false);
+    }
+  };
+
+  const handleToggleLike = async (post) => {
+    if (!post?.id) return;
+
+    if (!user) {
+      window.location.href = "/login";
+      return;
+    }
+
+    if (pendingLikeIds.includes(post.id)) return;
+
+    const nextLiked = !post.likedByUser;
+    const previousLikes = Array.isArray(post.post_likes) ? post.post_likes : [];
+    const nextLikes = nextLiked
+      ? [...previousLikes, { user_id: user.id }]
+      : previousLikes.filter((like) => like.user_id !== user.id);
+    const nextPostState = normalizePostLikeState(
+      {
+        ...post,
+        post_likes: nextLikes,
+      },
+      user.id,
+    );
+
+    setPendingLikeIds((currentIds) => [...currentIds, post.id]);
+    setPosts((currentPosts) =>
+      currentPosts.map((currentPost) =>
+        currentPost.id === post.id ? nextPostState : currentPost,
+      ),
+    );
+
+    try {
+      if (nextLiked) {
+        const { error } = await supabase.from("post_likes").insert([
+          {
+            post_id: post.id,
+            user_id: user.id,
+          },
+        ]);
+
+        if (error) throw error;
+
+        if (post.business_id && post.business_id !== user.id) {
+          const actorName = user.business?.name || user.name || "Un utilizator";
+          const postTitle = splitPostText(post.text).title;
+
+          await createNotification({
+            userId: post.business_id,
+            targetRole: "business",
+            actorId: user.id,
+            type: "like",
+            title: "Postarea ta a primit un like",
+            body: `${actorName} a apreciat "${postTitle}"`,
+            href: `/business/${post.business_id}`,
+            metadata: {
+              post_id: post.id,
+              business_id: post.business_id,
+            },
+          });
+        }
+      } else {
+        const { error } = await supabase
+          .from("post_likes")
+          .delete()
+          .eq("post_id", post.id)
+          .eq("user_id", user.id);
+
+        if (error) throw error;
+      }
+    } catch (err) {
+      console.error("Nu am putut actualiza like-ul:", err.message);
+      setPosts((currentPosts) =>
+        currentPosts.map((currentPost) =>
+          currentPost.id === post.id ? post : currentPost,
+        ),
+      );
+      alert("Nu am putut actualiza like-ul: " + err.message);
+    } finally {
+      setPendingLikeIds((currentIds) =>
+        currentIds.filter((currentId) => currentId !== post.id),
+      );
+    }
+  };
+
+  const handleToggleSavePost = async (post) => {
+    if (!post?.id) return;
+
+    if (!user) {
+      window.location.href = "/login";
+      return;
+    }
+
+    if (pendingSaveIds.includes(post.id)) return;
+
+    const nextSaved = !post.savedByUser;
+    const previousSaves = Array.isArray(post.post_saves) ? post.post_saves : [];
+    const nextSaves = nextSaved
+      ? [...previousSaves, { user_id: user.id }]
+      : previousSaves.filter((save) => save.user_id !== user.id);
+    const nextPostState = normalizePostSaveState(
+      {
+        ...post,
+        post_saves: nextSaves,
+      },
+      user.id,
+    );
+
+    setPendingSaveIds((currentIds) => [...currentIds, post.id]);
+    setPosts((currentPosts) =>
+      currentPosts.map((currentPost) =>
+        currentPost.id === post.id ? nextPostState : currentPost,
+      ),
+    );
+
+    try {
+      if (nextSaved) {
+        const { error } = await supabase.from("post_saves").insert([
+          {
+            post_id: post.id,
+            user_id: user.id,
+          },
+        ]);
+
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("post_saves")
+          .delete()
+          .eq("post_id", post.id)
+          .eq("user_id", user.id);
+
+        if (error) throw error;
+      }
+    } catch (err) {
+      console.error("Nu am putut actualiza salvarea postarii:", err.message);
+      setPosts((currentPosts) =>
+        currentPosts.map((currentPost) =>
+          currentPost.id === post.id ? post : currentPost,
+        ),
+      );
+      alert("Nu am putut actualiza salvarea: " + err.message);
+    } finally {
+      setPendingSaveIds((currentIds) =>
+        currentIds.filter((currentId) => currentId !== post.id),
+      );
     }
   };
 
@@ -1294,9 +1482,13 @@ export default function Home() {
               const businessHref = post.business_id
                 ? `/business/${post.business_id}`
                 : businessHrefByName.get(post.business_name?.toLowerCase());
+              const isLikePending = pendingLikeIds.includes(post.id);
+              const isSavePending = pendingSaveIds.includes(post.id);
+
               return (
                 <article
                   key={post.id}
+                  id={`post-${post.id}`}
                   className="relative overflow-hidden rounded-3xl transition-all duration-300 group"
                   style={{
                     backgroundColor: "#101014",
@@ -1356,18 +1548,54 @@ export default function Home() {
                   <div className="p-4">
                     <div className="flex items-center justify-between pt-1">
                       <div className="flex items-center gap-4 text-zinc-500">
-                        <button className="hover:text-[#ff003c] transition-colors">
-                          <Heart size={18} />
+                        <button
+                          type="button"
+                          onClick={() => void handleToggleLike(post)}
+                          disabled={isLikePending}
+                          aria-pressed={post.likedByUser}
+                          title={getPostLikeLabel(post.likesCount || 0)}
+                          className={`flex items-center gap-1.5 transition-colors ${
+                            post.likedByUser
+                              ? "text-[#ff003c]"
+                              : "hover:text-[#ff003c]"
+                          } ${isLikePending ? "opacity-60" : ""}`}
+                        >
+                          <Heart
+                            size={18}
+                            fill={post.likedByUser ? "currentColor" : "none"}
+                          />
+                          <span className="text-[11px] font-medium">
+                            {post.likesCount || 0}
+                          </span>
                         </button>
-                        <button className="hover:text-white transition-colors">
+                        <button
+                          type="button"
+                          className="hover:text-white transition-colors"
+                        >
                           <MessageCircle size={18} />
                         </button>
-                        <button className="hover:text-white transition-colors">
+                        <button
+                          type="button"
+                          className="hover:text-white transition-colors"
+                        >
                           <Share2 size={18} />
                         </button>
                       </div>
-                      <button className="w-9 h-9 rounded-xl ring-1 ring-white/10 text-zinc-400 flex items-center justify-center">
-                        <Bookmark size={15} />
+                      <button
+                        type="button"
+                        onClick={() => void handleToggleSavePost(post)}
+                        disabled={isSavePending}
+                        aria-pressed={post.savedByUser}
+                        className={`w-9 h-9 rounded-xl ring-1 ring-white/10 flex items-center justify-center transition-colors ${
+                          post.savedByUser
+                            ? "text-[#ff003c]"
+                            : "text-zinc-400 hover:text-white"
+                        } ${isSavePending ? "opacity-60" : ""}`}
+                      >
+                        <Bookmark
+                          size={15}
+                          fill={post.savedByUser ? "currentColor" : "none"}
+                        />
                       </button>
                     </div>
                   </div>

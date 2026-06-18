@@ -49,7 +49,11 @@ export function AuthProvider({ children }) {
         business = businessData || null;
       }
 
-      const name = profile?.name || business?.name || fallbackName;
+      const profileName =
+        typeof profile?.name === "string" ? profile.name.trim() : "";
+      const businessName =
+        typeof business?.name === "string" ? business.name.trim() : "";
+      const name = profileName || businessName || fallbackName;
       const avatarUrl =
         profile?.role === "business"
           ? business?.logo_url || profile?.avatar_url || null

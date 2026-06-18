@@ -176,6 +176,63 @@ alter table public.event_participants
   add column if not exists user_id uuid references auth.users(id) on delete cascade,
   add column if not exists created_at timestamptz not null default now();
 
+create table if not exists public.post_likes (
+  id uuid primary key default gen_random_uuid(),
+  post_id bigint not null references public.posts(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (post_id, user_id)
+);
+
+alter table public.post_likes
+  add column if not exists post_id bigint references public.posts(id) on delete cascade,
+  add column if not exists user_id uuid references auth.users(id) on delete cascade,
+  add column if not exists created_at timestamptz not null default now();
+
+create unique index if not exists post_likes_post_user_idx
+on public.post_likes (post_id, user_id);
+
+create index if not exists post_likes_post_created_idx
+on public.post_likes (post_id, created_at desc);
+
+create table if not exists public.post_saves (
+  id uuid primary key default gen_random_uuid(),
+  post_id bigint not null references public.posts(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (post_id, user_id)
+);
+
+alter table public.post_saves
+  add column if not exists post_id bigint references public.posts(id) on delete cascade,
+  add column if not exists user_id uuid references auth.users(id) on delete cascade,
+  add column if not exists created_at timestamptz not null default now();
+
+create unique index if not exists post_saves_post_user_idx
+on public.post_saves (post_id, user_id);
+
+create index if not exists post_saves_user_created_idx
+on public.post_saves (user_id, created_at desc);
+
+create table if not exists public.business_saves (
+  id uuid primary key default gen_random_uuid(),
+  business_id uuid not null references public.businesses(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (business_id, user_id)
+);
+
+alter table public.business_saves
+  add column if not exists business_id uuid references public.businesses(id) on delete cascade,
+  add column if not exists user_id uuid references auth.users(id) on delete cascade,
+  add column if not exists created_at timestamptz not null default now();
+
+create unique index if not exists business_saves_business_user_idx
+on public.business_saves (business_id, user_id);
+
+create index if not exists business_saves_user_created_idx
+on public.business_saves (user_id, created_at desc);
+
 create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete cascade,
@@ -282,6 +339,9 @@ alter table public.businesses enable row level security;
 alter table public.posts enable row level security;
 alter table public.events enable row level security;
 alter table public.event_participants enable row level security;
+alter table public.post_likes enable row level security;
+alter table public.post_saves enable row level security;
+alter table public.business_saves enable row level security;
 alter table public.notifications enable row level security;
 alter table public.notification_reads enable row level security;
 alter table public.business_reviews enable row level security;
@@ -373,6 +433,51 @@ with check (auth.uid() = user_id);
 drop policy if exists "event_participants_delete_own" on public.event_participants;
 create policy "event_participants_delete_own"
 on public.event_participants for delete
+using (auth.uid() = user_id);
+
+drop policy if exists "post_likes_select_public" on public.post_likes;
+create policy "post_likes_select_public"
+on public.post_likes for select
+using (true);
+
+drop policy if exists "post_likes_insert_own" on public.post_likes;
+create policy "post_likes_insert_own"
+on public.post_likes for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "post_likes_delete_own" on public.post_likes;
+create policy "post_likes_delete_own"
+on public.post_likes for delete
+using (auth.uid() = user_id);
+
+drop policy if exists "post_saves_select_own" on public.post_saves;
+create policy "post_saves_select_own"
+on public.post_saves for select
+using (auth.uid() = user_id);
+
+drop policy if exists "post_saves_insert_own" on public.post_saves;
+create policy "post_saves_insert_own"
+on public.post_saves for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "post_saves_delete_own" on public.post_saves;
+create policy "post_saves_delete_own"
+on public.post_saves for delete
+using (auth.uid() = user_id);
+
+drop policy if exists "business_saves_select_own" on public.business_saves;
+create policy "business_saves_select_own"
+on public.business_saves for select
+using (auth.uid() = user_id);
+
+drop policy if exists "business_saves_insert_own" on public.business_saves;
+create policy "business_saves_insert_own"
+on public.business_saves for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "business_saves_delete_own" on public.business_saves;
+create policy "business_saves_delete_own"
+on public.business_saves for delete
 using (auth.uid() = user_id);
 
 drop policy if exists "notifications_select_relevant" on public.notifications;

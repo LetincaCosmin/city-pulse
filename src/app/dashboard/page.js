@@ -9,6 +9,7 @@ import {
   Clock,
   Edit3,
   FileText,
+  Heart,
   Image as ImageIcon,
   MapPin,
   Plus,
@@ -21,6 +22,11 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { eventTypes, normalizeEvent } from "@/data/events";
 import { createNotification } from "@/lib/notifications";
+import {
+  getPostLikeLabel,
+  normalizePostLikeState,
+  normalizePostsLikeState,
+} from "@/lib/postLikes";
 import { supabase } from "@/lib/supabase";
 import imageCompression from "browser-image-compression";
 
@@ -30,6 +36,21 @@ function splitPostText(text = "") {
   return {
     title: firstLine || "Update local",
     body: rest.join("\n") || text,
+  };
+}
+
+function isOfferPost(post) {
+  const postCategory = post?.category?.toLowerCase?.() || "";
+  const postTag = post?.tag?.toLowerCase?.() || "";
+
+  return postCategory === "oferte" || postTag.includes("oferta");
+}
+
+function normalizeDashboardEvent(event) {
+  return {
+    ...normalizeEvent(event),
+    event_date: event.event_date || "",
+    poster_url: event.poster_url || null,
   };
 }
 
@@ -59,8 +80,18 @@ export default function DashboardPage() {
   const [eventPrice, setEventPrice] = useState("Intrare libera");
   const [eventLineup, setEventLineup] = useState("");
   const [deletingItem, setDeletingItem] = useState("");
+  const [editingPostId, setEditingPostId] = useState(null);
+  const [editingEventId, setEditingEventId] = useState(null);
 
   const business = user?.business;
+  const offerPosts = useMemo(() => posts.filter((post) => isOfferPost(post)), [posts]);
+  const updatePosts = useMemo(
+    () => posts.filter((post) => !isOfferPost(post)),
+    [posts],
+  );
+  const isEditingPost = Boolean(editingPostId);
+  const isEditingEvent = Boolean(editingEventId);
+  const isEditingPublisher = isEditingPost || isEditingEvent;
 
   useEffect(() => {
     if (!user) {
@@ -84,7 +115,7 @@ export default function DashboardPage() {
       const [postsResult, eventsResult] = await Promise.all([
         supabase
           .from("posts")
-          .select("*")
+          .select("*, post_likes(user_id)")
           .eq("business_id", business.id)
           .order("created_at", { ascending: false })
           .limit(8),
@@ -102,8 +133,8 @@ export default function DashboardPage() {
         console.error(postsResult.error || eventsResult.error);
       }
 
-      setPosts(postsResult.data || []);
-      setEvents((eventsResult.data || []).map(normalizeEvent));
+      setPosts(normalizePostsLikeState(postsResult.data || [], user?.id || null));
+      setEvents((eventsResult.data || []).map(normalizeDashboardEvent));
       setLoadingData(false);
     }
 
@@ -133,17 +164,77 @@ export default function DashboardPage() {
 
   const openPublisher = (mode) => {
     setPublishMode(mode);
-    setPostCategory(business?.category || "anunturi");
-    if (mode === "event") {
-      setEventLocation(business?.name || "");
-      setEventAddress(business?.location_name || "");
-    }
     setIsPublisherOpen(true);
+    setEditingPostId(null);
+    setEditingEventId(null);
+    setTitle("");
+    setContent("");
+    setPostCategory("anunturi");
+    setPostTypeTag("#AnuntNou");
+    setSelectedImage(null);
+    setImagePreview(null);
+    setEventTitle("");
+    setEventDescription("");
+    setEventType("Concerte");
+    setEventDate("");
+    setEventTime("");
+    setEventLocation(mode === "event" ? business?.name || "" : "");
+    setEventAddress(mode === "event" ? business?.location_name || "" : "");
+    setEventPrice("Intrare libera");
+    setEventLineup("");
+  };
+
+  const openPostEditor = (post) => {
+    const postText = splitPostText(post.text);
+
+    setPublishMode("post");
+    setIsPublisherOpen(true);
+    setEditingPostId(post.id);
+    setEditingEventId(null);
+    setTitle(postText.title);
+    setContent(postText.body);
+    setPostCategory(post.category || "anunturi");
+    setPostTypeTag(post.tag || "#AnuntNou");
+    setSelectedImage(null);
+    setImagePreview(post.image || null);
+    setEventTitle("");
+    setEventDescription("");
+    setEventType("Concerte");
+    setEventDate("");
+    setEventTime("");
+    setEventLocation("");
+    setEventAddress("");
+    setEventPrice("Intrare libera");
+    setEventLineup("");
+  };
+
+  const openEventEditor = (event) => {
+    setPublishMode("event");
+    setIsPublisherOpen(true);
+    setEditingEventId(event.id);
+    setEditingPostId(null);
+    setTitle("");
+    setContent("");
+    setPostCategory("anunturi");
+    setPostTypeTag("#AnuntNou");
+    setSelectedImage(null);
+    setImagePreview(event.poster_url || null);
+    setEventTitle(event.title || "");
+    setEventDescription(event.description || "");
+    setEventType(event.type || "Concerte");
+    setEventDate(event.event_date || "");
+    setEventTime(event.time || "");
+    setEventLocation(event.location || business?.name || "");
+    setEventAddress(event.address || business?.location_name || "");
+    setEventPrice(event.price || "Intrare libera");
+    setEventLineup(Array.isArray(event.lineup) ? event.lineup.join("\n") : "");
   };
 
   const closePublisher = () => {
     setIsPublisherOpen(false);
     setIsPublishing(false);
+    setEditingPostId(null);
+    setEditingEventId(null);
     setPublishMode("post");
     setTitle("");
     setContent("");
@@ -201,9 +292,9 @@ export default function DashboardPage() {
     setIsPublishing(true);
 
     try {
-      const imageUrl = await uploadSelectedImage();
-      const category = postCategory || business.category || "anunturi";
-      const newPostData = {
+      const imageUrl = selectedImage ? await uploadSelectedImage() : imagePreview || null;
+      const category = postCategory || "anunturi";
+      const postPayload = {
         business_id: business.id,
         category,
         business_name: business.name,
@@ -222,26 +313,57 @@ export default function DashboardPage() {
         image: imageUrl,
       };
 
-      const { data, error } = await supabase
-        .from("posts")
-        .insert([newPostData])
-        .select();
+      if (editingPostId) {
+        const currentPost = posts.find((post) => post.id === editingPostId);
+        const { data, error } = await supabase
+          .from("posts")
+          .update(postPayload)
+          .eq("id", editingPostId)
+          .eq("business_id", business.id)
+          .select()
+          .single();
 
-      if (error) throw error;
-      if (data?.[0]) {
-        setPosts((currentPosts) => [data[0], ...currentPosts]);
-        await createNotification({
-          targetRole: "user",
-          actorId: user?.id || null,
-          type: "post",
-          title: "Postare noua in oras",
-          body: `${business.name}: ${title}`,
-          href: `/business/${business.id}`,
-          metadata: {
-            post_id: data[0].id,
-            business_id: business.id,
-          },
-        });
+        if (error) throw error;
+        if (data) {
+          const normalizedUpdatedPost = normalizePostLikeState(
+            {
+              ...data,
+              post_likes: currentPost?.post_likes || [],
+            },
+            user?.id || null,
+          );
+
+          setPosts((currentPosts) =>
+            currentPosts.map((post) =>
+              post.id === editingPostId ? normalizedUpdatedPost : post,
+            ),
+          );
+        }
+      } else {
+        const { data, error } = await supabase
+          .from("posts")
+          .insert([postPayload])
+          .select();
+
+        if (error) throw error;
+        if (data?.[0]) {
+          setPosts((currentPosts) => [
+            normalizePostLikeState(data[0], user?.id || null),
+            ...currentPosts,
+          ]);
+          await createNotification({
+            targetRole: "user",
+            actorId: user?.id || null,
+            type: "post",
+            title: "Postare noua in oras",
+            body: `${business.name}: ${title}`,
+            href: `/business/${business.id}`,
+            metadata: {
+              post_id: data[0].id,
+              business_id: business.id,
+            },
+          });
+        }
       }
 
       closePublisher();
@@ -260,12 +382,12 @@ export default function DashboardPage() {
     setIsPublishing(true);
 
     try {
-      const imageUrl = await uploadSelectedImage();
+      const imageUrl = selectedImage ? await uploadSelectedImage() : imagePreview || null;
       const lineup = eventLineup
         .split("\n")
         .map((item) => item.trim())
         .filter(Boolean);
-      const newEventData = {
+      const eventPayload = {
         business_id: business.id,
         business_name: business.name,
         type: eventType,
@@ -281,29 +403,49 @@ export default function DashboardPage() {
         gallery: ["Poster", "Locatie", "Atmosfera"],
       };
 
-      const { data, error } = await supabase
-        .from("events")
-        .insert([newEventData])
-        .select();
+      if (editingEventId) {
+        const { data, error } = await supabase
+          .from("events")
+          .update(eventPayload)
+          .eq("id", editingEventId)
+          .eq("business_id", business.id)
+          .select()
+          .single();
 
-      if (error) throw error;
-      if (data?.[0]) {
-        setEvents((currentEvents) => [
-          normalizeEvent(data[0]),
-          ...currentEvents,
-        ]);
-        await createNotification({
-          targetRole: "user",
-          actorId: user?.id || null,
-          type: "event",
-          title: "Eveniment nou in Resita",
-          body: `${eventTitle} - ${eventLocation}`,
-          href: `/events/${data[0].id}`,
-          metadata: {
-            event_id: data[0].id,
-            business_id: business.id,
-          },
-        });
+        if (error) throw error;
+        if (data) {
+          const normalizedUpdatedEvent = normalizeDashboardEvent(data);
+          setEvents((currentEvents) =>
+            currentEvents.map((event) =>
+              event.id === editingEventId ? normalizedUpdatedEvent : event,
+            ),
+          );
+        }
+      } else {
+        const { data, error } = await supabase
+          .from("events")
+          .insert([eventPayload])
+          .select();
+
+        if (error) throw error;
+        if (data?.[0]) {
+          setEvents((currentEvents) => [
+            normalizeDashboardEvent(data[0]),
+            ...currentEvents,
+          ]);
+          await createNotification({
+            targetRole: "user",
+            actorId: user?.id || null,
+            type: "event",
+            title: "Eveniment nou in Resita",
+            body: `${eventTitle} - ${eventLocation}`,
+            href: `/events/${data[0].id}`,
+            metadata: {
+              event_id: data[0].id,
+              business_id: business.id,
+            },
+          });
+        }
       }
 
       closePublisher();
@@ -548,73 +690,82 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <section className="mb-6">
+      <section className="mb-6 space-y-5">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-white">
-            Postari recente
-          </h2>
+          <div>
+            <h2 className="text-base font-semibold text-white">Continut publicat</h2>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              Ofertele stau separat de noutatile obisnuite.
+            </p>
+          </div>
           <Link href="/" className="text-[11px] font-medium text-[#ff003c]">
             Feed
           </Link>
         </div>
 
-        {loadingData ? (
-          <LoadingCard />
-        ) : posts.length > 0 ? (
-          <div className="space-y-3">
-            {posts.slice(0, 4).map((post) => {
-              const postText = splitPostText(post.text);
-              return (
-                <article
-                  key={post.id}
-                  className="overflow-hidden rounded-2xl bg-[#101014] ring-1 ring-white/10"
-                >
-                  <div className="p-4">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="rounded-md border border-[#ff003c]/30 bg-[#ff003c]/10 px-2 py-1 text-[9px] font-medium tracking-wider text-[#ff003c]">
-                        {post.tag || "#Update"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeletePost(post.id)}
-                        disabled={deletingItem === `post-${post.id}`}
-                        className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-zinc-600 transition-colors hover:text-[#ff003c] disabled:opacity-50"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                    <h3 className="text-sm font-semibold text-white">
-                      {postText.title}
-                    </h3>
-                    {postText.body && (
-                      <p className="mt-1 line-clamp-2 text-xs font-light leading-relaxed text-zinc-500">
-                        {postText.body}
-                      </p>
-                    )}
-                    {post.image && (
-                      <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-black/30">
-                        <img
-                          src={post.image}
-                          alt={postText.title}
-                          className="h-36 w-full object-cover"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </article>
-              );
-            })}
+        <div className="space-y-4">
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-white">Oferte active</h3>
+              <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+                {offerPosts.length}
+              </span>
+            </div>
+            {loadingData ? (
+              <LoadingCard />
+            ) : offerPosts.length > 0 ? (
+              <div className="space-y-3">
+                {offerPosts.slice(0, 4).map((post) => (
+                  <DashboardPostCard
+                    key={post.id}
+                    post={post}
+                    deletingItem={deletingItem}
+                    onEdit={openPostEditor}
+                    onDelete={handleDeletePost}
+                  />
+                ))}
+              </div>
+            ) : (
+              <EmptyState text="Nu ai oferte active momentan." />
+            )}
           </div>
-        ) : (
-          <EmptyState text="Nu ai postari publicate inca." />
-        )}
+
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-white">Noutati si anunturi</h3>
+              <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+                {updatePosts.length}
+              </span>
+            </div>
+            {loadingData ? (
+              <LoadingCard />
+            ) : updatePosts.length > 0 ? (
+              <div className="space-y-3">
+                {updatePosts.slice(0, 4).map((post) => (
+                  <DashboardPostCard
+                    key={post.id}
+                    post={post}
+                    deletingItem={deletingItem}
+                    onEdit={openPostEditor}
+                    onDelete={handleDeletePost}
+                  />
+                ))}
+              </div>
+            ) : (
+              <EmptyState text="Nu ai noutati publicate inca." />
+            )}
+          </div>
+        </div>
       </section>
 
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-white">
-            Evenimente active
-          </h2>
+          <div>
+            <h2 className="text-base font-semibold text-white">Evenimente active</h2>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              Le poti actualiza direct din dashboard.
+            </p>
+          </div>
           <Link href="/events" className="text-[11px] font-medium text-[#ff003c]">
             Events
           </Link>
@@ -625,30 +776,13 @@ export default function DashboardPage() {
         ) : events.length > 0 ? (
           <div className="space-y-3">
             {events.slice(0, 4).map((event) => (
-              <div
+              <DashboardEventRow
                 key={event.id}
-                className="flex items-center justify-between gap-3 rounded-2xl bg-[#101014] px-4 py-3 ring-1 ring-white/10"
-              >
-                <Link href={`/events/${event.id}`} className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-white">
-                    {event.title}
-                  </span>
-                  <span className="mt-1 block truncate text-[11px] text-zinc-500">
-                    {event.fullDate} - {event.time}
-                  </span>
-                </Link>
-                <div className="flex shrink-0 items-center gap-2">
-                  <ArrowUpRight size={16} className="text-[#ff003c]" />
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteEvent(event.id)}
-                    disabled={deletingItem === `event-${event.id}`}
-                    className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-zinc-600 transition-colors hover:text-[#ff003c] disabled:opacity-50"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </div>
+                event={event}
+                deletingItem={deletingItem}
+                onEdit={openEventEditor}
+                onDelete={handleDeleteEvent}
+              />
             ))}
           </div>
         ) : (
@@ -688,34 +822,47 @@ export default function DashboardPage() {
             <div className="mb-5">
               <h3 className="flex items-center gap-2 text-sm font-medium uppercase tracking-wider text-white">
                 <Sparkles size={14} className="text-[#ff003c]" />
-                Publica din dashboard
+                {isEditingPost
+                  ? "Editezi postarea"
+                  : isEditingEvent
+                    ? "Editezi evenimentul"
+                    : "Publica din dashboard"}
               </h3>
               <p className="mt-1 text-[11px] text-zinc-500">
-                {publishMode === "post" ? "Anuntul" : "Evenimentul"} va fi
-                incarcat live pentru {business.name}
+                {isEditingPost
+                  ? "Actualizezi continutul care apare in pagina firmei si in feed."
+                  : isEditingEvent
+                    ? "Actualizezi detaliile evenimentului deja publicat."
+                    : `${publishMode === "post" ? "Anuntul" : "Evenimentul"} va fi incarcat live pentru ${business.name}`}
               </p>
             </div>
 
-            <div className="mb-4 grid grid-cols-2 rounded-2xl bg-[#161619] p-1 ring-1 ring-zinc-800">
-              {[
-                ["post", "Postare"],
-                ["event", "Eveniment"],
-              ].map(([mode, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  disabled={isPublishing}
-                  onClick={() => setPublishMode(mode)}
-                  className={`h-9 rounded-xl border-none text-xs font-medium transition-all ${
-                    publishMode === mode
-                      ? "bg-[#ff003c] text-white shadow-[0_0_16px_rgba(255,0,60,0.24)]"
-                      : "bg-transparent text-zinc-500"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            {isEditingPublisher ? (
+              <div className="mb-4 rounded-2xl border border-[#ff003c]/20 bg-[#ff003c]/8 px-4 py-3 text-[11px] leading-relaxed text-zinc-400">
+                Poti schimba textul, poza si detaliile, apoi salvezi modificarile.
+              </div>
+            ) : (
+              <div className="mb-4 grid grid-cols-2 rounded-2xl bg-[#161619] p-1 ring-1 ring-zinc-800">
+                {[
+                  ["post", "Postare"],
+                  ["event", "Eveniment"],
+                ].map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    disabled={isPublishing}
+                    onClick={() => openPublisher(mode)}
+                    className={`h-9 rounded-xl border-none text-xs font-medium transition-all ${
+                      publishMode === mode
+                        ? "bg-[#ff003c] text-white shadow-[0_0_16px_rgba(255,0,60,0.24)]"
+                        : "bg-transparent text-zinc-500"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {publishMode === "post" ? (
               <form onSubmit={handleCreatePost} className="space-y-4">
@@ -795,7 +942,13 @@ export default function DashboardPage() {
                       : "bg-[#ff003c] shadow-[0_0_18px_rgba(255,0,60,0.22)] hover:bg-[#d60032]"
                   }`}
                 >
-                  {isPublishing ? "Se publica..." : "Lanseaza pe Resita"}
+                  {isPublishing
+                    ? isEditingPost
+                      ? "Se salveaza..."
+                      : "Se publica..."
+                    : isEditingPost
+                      ? "Salveaza modificarile"
+                      : "Lanseaza pe Resita"}
                 </button>
               </form>
             ) : (
@@ -947,13 +1100,114 @@ export default function DashboardPage() {
                       : "bg-[#ff003c] shadow-[0_0_18px_rgba(255,0,60,0.22)] hover:bg-[#d60032]"
                   }`}
                 >
-                  {isPublishing ? "Se publica..." : "Publica evenimentul"}
+                  {isPublishing
+                    ? isEditingEvent
+                      ? "Se salveaza..."
+                      : "Se publica..."
+                    : isEditingEvent
+                      ? "Actualizeaza evenimentul"
+                      : "Publica evenimentul"}
                 </button>
               </form>
             )}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function DashboardPostCard({ post, deletingItem, onEdit, onDelete }) {
+  const postText = splitPostText(post.text);
+
+  return (
+    <article className="overflow-hidden rounded-2xl bg-[#101014] ring-1 ring-white/10">
+      <div className="p-4">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <span className="rounded-md border border-[#ff003c]/30 bg-[#ff003c]/10 px-2 py-1 text-[9px] font-medium tracking-wider text-[#ff003c]">
+            {post.tag || "#Update"}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onEdit(post)}
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-zinc-500 transition-colors hover:text-white"
+              aria-label="Editeaza postarea"
+            >
+              <Edit3 size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(post.id)}
+              disabled={deletingItem === `post-${post.id}`}
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-zinc-600 transition-colors hover:text-[#ff003c] disabled:opacity-50"
+              aria-label="Sterge postarea"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </div>
+        <h3 className="text-sm font-semibold text-white">{postText.title}</h3>
+        {postText.body ? (
+          <p className="mt-1 line-clamp-2 text-xs font-light leading-relaxed text-zinc-500">
+            {postText.body}
+          </p>
+        ) : null}
+        {post.image ? (
+          <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-black/30">
+            <img
+              src={post.image}
+              alt={postText.title}
+              className="h-36 w-full object-cover"
+            />
+          </div>
+        ) : null}
+        <div className="mt-3 flex items-center gap-1.5 text-[11px] text-zinc-500">
+          <HeartBadge />
+          <span>{getPostLikeLabel(post.likesCount || 0)}</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function DashboardEventRow({ event, deletingItem, onEdit, onDelete }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl bg-[#101014] px-4 py-3 ring-1 ring-white/10">
+      <Link href={`/events/${event.id}`} className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-white">
+          {event.title}
+        </span>
+        <span className="mt-1 block truncate text-[11px] text-zinc-500">
+          {event.fullDate} - {event.time}
+        </span>
+      </Link>
+      <div className="flex shrink-0 items-center gap-2">
+        <Link
+          href={`/events/${event.id}`}
+          className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-zinc-500 transition-colors hover:text-[#ff003c]"
+          aria-label="Vezi evenimentul"
+        >
+          <ArrowUpRight size={14} />
+        </Link>
+        <button
+          type="button"
+          onClick={() => onEdit(event)}
+          className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-zinc-500 transition-colors hover:text-white"
+          aria-label="Editeaza evenimentul"
+        >
+          <Edit3 size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={() => onDelete(event.id)}
+          disabled={deletingItem === `event-${event.id}`}
+          className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-zinc-600 transition-colors hover:text-[#ff003c] disabled:opacity-50"
+          aria-label="Sterge evenimentul"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -973,5 +1227,13 @@ function EmptyState({ text }) {
     <div className="rounded-2xl border border-dashed border-white/10 p-4 text-sm font-light text-zinc-500">
       {text}
     </div>
+  );
+}
+
+function HeartBadge() {
+  return (
+    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#ff003c]/10 text-[#ff003c] ring-1 ring-[#ff003c]/20">
+      <Heart size={12} fill="currentColor" />
+    </span>
   );
 }
