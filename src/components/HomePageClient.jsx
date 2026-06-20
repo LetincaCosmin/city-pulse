@@ -1224,6 +1224,31 @@ export default function HomePageClient() {
         </section>
 
         <section className="px-4 mb-7 sm:px-5">
+          <Link
+            href="/resita"
+            className="group block rounded-2xl border border-white/10 bg-[#101014] p-4 transition-colors hover:border-[#ff003c]/45"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-[#ff003c]">
+                  Ghid local
+                </p>
+                <h2 className="mt-2 text-base font-semibold tracking-tight text-white">
+                  Pulse City Resita
+                </h2>
+                <p className="mt-1 text-xs font-light leading-relaxed text-zinc-500">
+                  Evenimente, business-uri, oferte si noutati locale intr-un
+                  singur loc.
+                </p>
+              </div>
+              <span className="mt-1 text-lg text-zinc-500 transition-colors group-hover:text-[#ff003c]">
+                -&gt;
+              </span>
+            </div>
+          </Link>
+        </section>
+
+        <section className="px-4 mb-7 sm:px-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-base font-semibold tracking-tight text-white">
               Business-uri locale

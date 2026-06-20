@@ -5,7 +5,7 @@ export default function robots() {
     rules: [
       {
         userAgent: "*",
-        allow: ["/", "/business", "/events", "/map", "/privacy", "/terms", "/cookies"],
+        allow: ["/", "/resita", "/business", "/events", "/map", "/privacy", "/terms", "/cookies"],
         disallow: ["/dashboard", "/profile", "/login", "/setup-profile", "/reset-password"],
       },
     ],

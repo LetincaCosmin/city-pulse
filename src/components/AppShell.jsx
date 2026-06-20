@@ -117,6 +117,12 @@ function LayoutContent({ children }) {
                 Descopera ce e nou in Resita, evenimente, localuri, oferte si
                 oameni.
               </p>
+              <Link
+                href="/resita"
+                className="mt-3 inline-flex w-fit rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-400 transition-colors hover:border-[#ff003c]/50 hover:text-[#ff003c]"
+              >
+                Ghid local Resita
+              </Link>
             </div>
 
             <nav className="flex flex-col gap-1.5">
@@ -189,6 +195,13 @@ function LayoutContent({ children }) {
           {children}
           <footer className="px-4 pb-8 pt-3 text-[10px] text-zinc-600 sm:px-5">
             <div className="flex flex-wrap items-center justify-center gap-2">
+              <Link
+                href="/resita"
+                className="transition-colors hover:text-[#ff003c]"
+              >
+                Resita
+              </Link>
+              <span>/</span>
               <Link
                 href="/privacy"
                 className="transition-colors hover:text-[#ff003c]"

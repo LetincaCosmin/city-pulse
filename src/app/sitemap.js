@@ -89,6 +89,7 @@ async function getDynamicUrls() {
 export default async function sitemap() {
   const staticUrls = [
     createUrl("/", { changeFrequency: "daily", priority: 1 }),
+    createUrl("/resita", { changeFrequency: "weekly", priority: 0.95 }),
     createUrl("/business", { changeFrequency: "daily", priority: 0.9 }),
     createUrl("/events", { changeFrequency: "daily", priority: 0.9 }),
     createUrl("/map", { changeFrequency: "weekly", priority: 0.8 }),
