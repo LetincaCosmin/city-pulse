@@ -50,6 +50,43 @@ async function getEvent(id) {
   return data ? normalizeEvent(data) : undefined;
 }
 
+export async function generateMetadata({ params }) {
+  const { id } = await params;
+  const event = await getEvent(id);
+
+  if (!event) {
+    return {
+      title: "Eveniment local",
+      robots: {
+        index: false,
+        follow: false,
+      },
+    };
+  }
+
+  const description = `${event.title} in Resita pe Pulse City: ${event.fullDate}, ${event.time}, ${event.address}.`;
+
+  return {
+    title: event.title,
+    description,
+    alternates: {
+      canonical: `/events/${event.id}`,
+    },
+    openGraph: {
+      title: `${event.title} | Pulse City`,
+      description,
+      url: `/events/${event.id}`,
+      images: [event.poster || "/images/resita-bg.png"],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${event.title} | Pulse City`,
+      description,
+      images: [event.poster || "/images/resita-bg.png"],
+    },
+  };
+}
+
 export default async function EventDetailPage({ params }) {
   const { id } = await params;
   const event = await getEvent(id);

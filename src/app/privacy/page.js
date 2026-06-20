@@ -2,7 +2,12 @@ import LegalPage, { LegalList, LegalSection } from "@/components/LegalPage";
 import { legalInfo } from "@/data/legal";
 
 export const metadata = {
-  title: "Politica de confidentialitate | Resita Pulse",
+  title: {
+    absolute: "Politica de confidentialitate | Pulse City",
+  },
+  alternates: {
+    canonical: "/privacy",
+  },
 };
 
 export default function PrivacyPage() {

@@ -2,7 +2,12 @@ import LegalPage, { LegalList, LegalSection } from "@/components/LegalPage";
 import { legalInfo } from "@/data/legal";
 
 export const metadata = {
-  title: "Termeni si conditii | Resita Pulse",
+  title: {
+    absolute: "Termeni si conditii | Pulse City",
+  },
+  alternates: {
+    canonical: "/terms",
+  },
 };
 
 export default function TermsPage() {
@@ -73,4 +78,3 @@ export default function TermsPage() {
     </LegalPage>
   );
 }
-

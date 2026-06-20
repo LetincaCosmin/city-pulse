@@ -13,6 +13,26 @@ import { eventTypes, events as mockEvents, mergeEvents } from "@/data/events";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Evenimente in Resita",
+  description:
+    "Gaseste evenimente in Resita: concerte, festivaluri, meetups, activitati locale si iesiri recomandate de comunitate.",
+  robots: {
+    index: true,
+    follow: true,
+  },
+  alternates: {
+    canonical: "/events",
+  },
+  openGraph: {
+    title: "Evenimente in Resita | Pulse City",
+    description:
+      "Concerte, festivaluri, meetups si activitati locale din Resita.",
+    url: "/events",
+    images: ["/images/resita-bg.png"],
+  },
+};
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,

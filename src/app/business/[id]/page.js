@@ -219,6 +219,43 @@ export function generateStaticParams() {
   return showDemoContent ? businesses.map((business) => ({ id: business.id })) : [];
 }
 
+export async function generateMetadata({ params }) {
+  const { id } = await params;
+  const business = await getBusiness(id);
+
+  if (!business) {
+    return {
+      title: "Business local",
+      robots: {
+        index: false,
+        follow: false,
+      },
+    };
+  }
+
+  const description = `${business.name} pe Pulse City: ${business.category}, adresa ${business.address}, program si detalii pentru Resita.`;
+
+  return {
+    title: business.name,
+    description,
+    alternates: {
+      canonical: `/business/${business.id}`,
+    },
+    openGraph: {
+      title: `${business.name} | Pulse City`,
+      description,
+      url: `/business/${business.id}`,
+      images: [business.cover || "/images/resita-bg.png"],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${business.name} | Pulse City`,
+      description,
+      images: [business.cover || "/images/resita-bg.png"],
+    },
+  };
+}
+
 export default async function BusinessPage({ params }) {
   const { id } = await params;
   const business = await getBusiness(id);

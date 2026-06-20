@@ -2,7 +2,12 @@ import LegalPage, { LegalList, LegalSection } from "@/components/LegalPage";
 import { legalInfo } from "@/data/legal";
 
 export const metadata = {
-  title: "Politica cookies | Resita Pulse",
+  title: {
+    absolute: "Politica cookies | Pulse City",
+  },
+  alternates: {
+    canonical: "/cookies",
+  },
 };
 
 export default function CookiesPage() {
@@ -55,4 +60,3 @@ export default function CookiesPage() {
     </LegalPage>
   );
 }
-

@@ -7,6 +7,26 @@ import { calculateBusinessReviewSummary } from "@/lib/businessReviews";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Business-uri locale in Resita",
+  description:
+    "Descopera business-uri locale din Resita: localuri, servicii, magazine, oferte si pagini actualizate de antreprenori locali.",
+  robots: {
+    index: true,
+    follow: true,
+  },
+  alternates: {
+    canonical: "/business",
+  },
+  openGraph: {
+    title: "Business-uri locale in Resita | Pulse City",
+    description:
+      "Descopera business-uri locale din Resita: localuri, servicii, magazine si oferte.",
+    url: "/business",
+    images: ["/images/resita-bg.png"],
+  },
+};
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
