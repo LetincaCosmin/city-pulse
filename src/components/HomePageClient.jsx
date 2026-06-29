@@ -15,6 +15,7 @@ import {
   Radio,
   Search,
   Share2,
+  SmilePlus,
   Sparkles,
   Store,
   Utensils,
@@ -49,6 +50,34 @@ const categories = [
 ];
 
 const MAX_POST_TAGS = 5;
+const COMMENT_EMOJIS = [
+  "🇷🇴",
+  "😂",
+  "🤣",
+  "😅",
+  "😍",
+  "🔥",
+  "❤️",
+  "🙌",
+  "👏",
+  "✨",
+  "💯",
+  "🤝",
+  "🙏",
+  "😎",
+  "🥳",
+  "👀",
+  "😮",
+  "😭",
+  "🤩",
+  "👌",
+  "💪",
+  "🚀",
+  "⭐",
+  "🍀",
+  "🎉",
+  "🫶",
+];
 
 function normalizeBusinessCard(business) {
   return {
@@ -145,6 +174,7 @@ export default function HomePageClient() {
   const [commentsError, setCommentsError] = useState("");
   const [commentText, setCommentText] = useState("");
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -214,7 +244,7 @@ export default function HomePageClient() {
         const [postsResult, savesResult] = await Promise.all([
           supabase
             .from("posts")
-            .select("*, post_likes(user_id)")
+            .select("*, post_likes(user_id), post_comments(id)")
             .order("created_at", { ascending: false }),
           user?.id
             ? supabase
@@ -338,6 +368,7 @@ export default function HomePageClient() {
         setPostComments([]);
         setCommentsError("");
         setCommentText("");
+        setIsEmojiPickerOpen(false);
         return;
       }
 
@@ -358,7 +389,46 @@ export default function HomePageClient() {
           "Comentariile nu sunt configurate inca in baza de date.",
         );
       } else {
-        setPostComments(data || []);
+        const comments = data || [];
+        const commentUserIds = [
+          ...new Set(comments.map((comment) => comment.user_id).filter(Boolean)),
+        ];
+
+        let avatarByUserId = new Map();
+
+        if (commentUserIds.length > 0) {
+          const [profilesResult, businessesResult] = await Promise.all([
+            supabase
+              .from("profiles")
+              .select("id, avatar_url")
+              .in("id", commentUserIds),
+            supabase
+              .from("businesses")
+              .select("id, logo_url")
+              .in("id", commentUserIds),
+          ]);
+
+          const profileAvatars = profilesResult.data || [];
+          const businessLogos = businessesResult.data || [];
+
+          avatarByUserId = new Map(
+            profileAvatars.map((profile) => [profile.id, profile.avatar_url]),
+          );
+
+          businessLogos.forEach((business) => {
+            if (business.logo_url) {
+              avatarByUserId.set(business.id, business.logo_url);
+            }
+          });
+        }
+
+        setPostComments(
+          comments.map((comment) => ({
+            ...comment,
+            user_avatar_url:
+              comment.user_avatar_url || avatarByUserId.get(comment.user_id) || null,
+          })),
+        );
       }
 
       setCommentsLoading(false);
@@ -781,6 +851,14 @@ export default function HomePageClient() {
     );
   };
 
+  const addEmojiToComment = (emoji) => {
+    setCommentText((currentText) => {
+      const trimmedText = currentText.trimEnd();
+      return trimmedText ? `${trimmedText} ${emoji}` : emoji;
+    });
+    setIsEmojiPickerOpen(false);
+  };
+
   const handleSubmitPostComment = async (event) => {
     event.preventDefault();
 
@@ -813,7 +891,29 @@ export default function HomePageClient() {
       setCommentsError("Nu am putut publica comentariul momentan.");
     } else if (data) {
       setPostComments((currentComments) => [...currentComments, data]);
+      setPosts((currentPosts) =>
+        currentPosts.map((post) =>
+          post.id === selectedPost.id
+            ? {
+                ...post,
+                post_comments: [...(post.post_comments || []), { id: data.id }],
+              }
+            : post,
+        ),
+      );
+      setSelectedPost((currentPost) =>
+        currentPost
+          ? {
+              ...currentPost,
+              post_comments: [
+                ...(currentPost.post_comments || []),
+                { id: data.id },
+              ],
+            }
+          : currentPost,
+      );
       setCommentText("");
+      setIsEmojiPickerOpen(false);
     }
 
     setIsSubmittingComment(false);
@@ -1157,6 +1257,9 @@ export default function HomePageClient() {
                 postText.body.length > 180 ||
                 postText.body.split("\n").filter(Boolean).length > 2;
               const postBusiness = getPostBusiness(post);
+              const commentsCount = Array.isArray(post.post_comments)
+                ? post.post_comments.length
+                : 0;
 
               return (
                 <article
@@ -1289,9 +1392,12 @@ export default function HomePageClient() {
                         <button
                           type="button"
                           onClick={() => setSelectedPost(post)}
-                          className="hover:text-white transition-colors"
+                          className="flex items-center gap-1.5 transition-colors hover:text-white"
                         >
                           <MessageCircle size={18} />
+                          <span className="text-[11px] font-medium">
+                            {commentsCount}
+                          </span>
                         </button>
                         <button
                           type="button"
@@ -1458,23 +1564,53 @@ export default function HomePageClient() {
                 )}
 
                 {user ? (
-                  <form onSubmit={handleSubmitPostComment} className="mt-4 flex gap-2">
-                    <input
-                      type="text"
-                      value={commentText}
-                      onChange={(event) => setCommentText(event.target.value)}
-                      placeholder="Scrie un comentariu..."
-                      disabled={isSubmittingComment}
-                      className="min-w-0 flex-1 rounded-xl border border-zinc-800 bg-black/35 px-3 py-2 text-[12px] text-zinc-200 outline-none transition placeholder:text-zinc-600 focus:border-[#ff003c]/50"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!commentText.trim() || isSubmittingComment}
-                      className="rounded-xl bg-[#ff003c] px-3 text-[12px] font-semibold text-white transition hover:bg-[#d60032] disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
-                    >
-                      Trimite
-                    </button>
-                  </form>
+                  <div className="relative mt-4">
+                    {isEmojiPickerOpen && (
+                      <div className="absolute bottom-full left-0 z-20 mb-2 w-[236px] rounded-2xl border border-zinc-800 bg-[#151518] p-2 shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
+                        <div className="grid max-h-36 grid-cols-6 gap-1 overflow-y-auto pr-1 no-scrollbar">
+                          {COMMENT_EMOJIS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => addEmojiToComment(emoji)}
+                              className="flex h-8 w-8 items-center justify-center rounded-xl text-base transition hover:-translate-y-0.5 hover:bg-[#ff003c]/12"
+                              aria-label={`Adauga ${emoji}`}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <form onSubmit={handleSubmitPostComment} className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setIsEmojiPickerOpen((isOpen) => !isOpen)
+                        }
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-zinc-800 bg-black/35 text-zinc-300 transition hover:border-[#ff003c]/45 hover:bg-[#ff003c]/10 hover:text-white"
+                        aria-label="Alege emoji"
+                        aria-expanded={isEmojiPickerOpen}
+                      >
+                        <SmilePlus size={17} />
+                      </button>
+                      <input
+                        type="text"
+                        value={commentText}
+                        onChange={(event) => setCommentText(event.target.value)}
+                        placeholder="Scrie un comentariu..."
+                        disabled={isSubmittingComment}
+                        className="min-w-0 flex-1 rounded-xl border border-zinc-800 bg-black/35 px-3 py-2 text-[12px] text-zinc-200 outline-none transition placeholder:text-zinc-600 focus:border-[#ff003c]/50"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!commentText.trim() || isSubmittingComment}
+                        className="rounded-xl bg-[#ff003c] px-3 text-[12px] font-semibold text-white transition hover:bg-[#d60032] disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+                      >
+                        Trimite
+                      </button>
+                    </form>
+                  </div>
                 ) : (
                   <Link
                     href="/login"
