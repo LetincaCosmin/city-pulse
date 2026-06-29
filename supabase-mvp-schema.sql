@@ -214,6 +214,30 @@ on public.post_saves (post_id, user_id);
 create index if not exists post_saves_user_created_idx
 on public.post_saves (user_id, created_at desc);
 
+create table if not exists public.post_comments (
+  id uuid primary key default gen_random_uuid(),
+  post_id bigint not null references public.posts(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  user_name text not null default 'Utilizator',
+  body text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.post_comments
+  add column if not exists post_id bigint references public.posts(id) on delete cascade,
+  add column if not exists user_id uuid references auth.users(id) on delete cascade,
+  add column if not exists user_name text not null default 'Utilizator',
+  add column if not exists body text not null default '',
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
+create index if not exists post_comments_post_created_idx
+on public.post_comments (post_id, created_at asc);
+
+create index if not exists post_comments_user_created_idx
+on public.post_comments (user_id, created_at desc);
+
 create table if not exists public.business_saves (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,
@@ -341,6 +365,7 @@ alter table public.events enable row level security;
 alter table public.event_participants enable row level security;
 alter table public.post_likes enable row level security;
 alter table public.post_saves enable row level security;
+alter table public.post_comments enable row level security;
 alter table public.business_saves enable row level security;
 alter table public.notifications enable row level security;
 alter table public.notification_reads enable row level security;
@@ -463,6 +488,27 @@ with check (auth.uid() = user_id);
 drop policy if exists "post_saves_delete_own" on public.post_saves;
 create policy "post_saves_delete_own"
 on public.post_saves for delete
+using (auth.uid() = user_id);
+
+drop policy if exists "post_comments_select_public" on public.post_comments;
+create policy "post_comments_select_public"
+on public.post_comments for select
+using (true);
+
+drop policy if exists "post_comments_insert_own" on public.post_comments;
+create policy "post_comments_insert_own"
+on public.post_comments for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "post_comments_update_own" on public.post_comments;
+create policy "post_comments_update_own"
+on public.post_comments for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "post_comments_delete_own" on public.post_comments;
+create policy "post_comments_delete_own"
+on public.post_comments for delete
 using (auth.uid() = user_id);
 
 drop policy if exists "business_saves_select_own" on public.business_saves;
@@ -663,6 +709,11 @@ for each row execute function public.set_updated_at();
 drop trigger if exists posts_set_updated_at on public.posts;
 create trigger posts_set_updated_at
 before update on public.posts
+for each row execute function public.set_updated_at();
+
+drop trigger if exists post_comments_set_updated_at on public.post_comments;
+create trigger post_comments_set_updated_at
+before update on public.post_comments
 for each row execute function public.set_updated_at();
 
 drop trigger if exists events_set_updated_at on public.events;
