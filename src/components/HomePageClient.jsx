@@ -346,7 +346,7 @@ export default function HomePageClient() {
 
       const { data, error } = await supabase
         .from("post_comments")
-        .select("id, post_id, user_id, user_name, body, created_at")
+        .select("id, post_id, user_id, user_name, user_avatar_url, body, created_at")
         .eq("post_id", selectedPost.id)
         .order("created_at", { ascending: true });
 
@@ -799,13 +799,14 @@ export default function HomePageClient() {
       post_id: selectedPost.id,
       user_id: user.id,
       user_name: user.name || "Utilizator",
+      user_avatar_url: user.avatarUrl || null,
       body: cleanComment,
     };
 
     const { data, error } = await supabase
       .from("post_comments")
       .insert([newComment])
-      .select("id, post_id, user_id, user_name, body, created_at")
+      .select("id, post_id, user_id, user_name, user_avatar_url, body, created_at")
       .maybeSingle();
 
     if (error) {
@@ -827,6 +828,32 @@ export default function HomePageClient() {
     });
     return map;
   }, [businessList]);
+
+  const businessById = useMemo(() => {
+    const map = new Map();
+    businessList.forEach((business) => {
+      map.set(business.id, business);
+    });
+    return map;
+  }, [businessList]);
+
+  const businessByName = useMemo(() => {
+    const map = new Map();
+    businessList.forEach((business) => {
+      if (business.name) {
+        map.set(business.name.toLowerCase(), business);
+      }
+    });
+    return map;
+  }, [businessList]);
+
+  const getPostBusiness = (post) => {
+    if (post?.business_id && businessById.has(post.business_id)) {
+      return businessById.get(post.business_id);
+    }
+
+    return businessByName.get(post?.business_name?.toLowerCase()) || null;
+  };
 
   const filteredPosts = useMemo(() => {
     return posts.filter((post) => {
@@ -893,6 +920,7 @@ export default function HomePageClient() {
 
   const selectedPostText = selectedPost ? splitPostText(selectedPost.text) : null;
   const selectedPostTags = selectedPost ? splitPostTags(selectedPost.tag) : [];
+  const selectedPostBusiness = selectedPost ? getPostBusiness(selectedPost) : null;
 
   return (
     <>
@@ -1128,6 +1156,7 @@ export default function HomePageClient() {
               const hasExpandableBody =
                 postText.body.length > 180 ||
                 postText.body.split("\n").filter(Boolean).length > 2;
+              const postBusiness = getPostBusiness(post);
 
               return (
                 <article
@@ -1142,8 +1171,16 @@ export default function HomePageClient() {
                 >
                   <div className="p-4">
                     <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 shrink-0 bg-zinc-950 rounded-2xl flex items-center justify-center ring-1 ring-white/10 text-[#ff003c]">
-                        <Store size={18} />
+                      <div className="w-10 h-10 shrink-0 overflow-hidden bg-zinc-950 rounded-2xl flex items-center justify-center ring-1 ring-white/10 text-[#ff003c]">
+                        {postBusiness?.logoUrl ? (
+                          <img
+                            src={postBusiness.logoUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <Store size={18} />
+                        )}
                       </div>
                       <div className="min-w-0 flex-1">
                         {businessHref ? (
@@ -1325,8 +1362,16 @@ export default function HomePageClient() {
             <div className="no-scrollbar flex w-full flex-col overflow-y-auto md:h-full md:w-[380px] md:shrink-0 md:border-l md:border-zinc-800">
               <div className="border-b border-zinc-900 p-4 pb-3">
                 <div className="flex items-start gap-3 pr-11">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-zinc-950 text-[#ff003c] ring-1 ring-white/10">
-                    <Store size={18} />
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-zinc-950 text-[#ff003c] ring-1 ring-white/10">
+                    {selectedPostBusiness?.logoUrl ? (
+                      <img
+                        src={selectedPostBusiness.logoUrl}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <Store size={18} />
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <h2 className="truncate text-sm font-semibold text-white">
@@ -1373,8 +1418,16 @@ export default function HomePageClient() {
                   ) : postComments.length > 0 ? (
                     postComments.map((comment) => (
                       <div key={comment.id} className="flex gap-2.5">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-zinc-950 text-[11px] font-semibold text-[#ff003c] ring-1 ring-white/10">
-                          {(comment.user_name || "U").charAt(0).toUpperCase()}
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-950 text-[11px] font-semibold text-[#ff003c] ring-1 ring-white/10">
+                          {comment.user_avatar_url ? (
+                            <img
+                              src={comment.user_avatar_url}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            (comment.user_name || "U").charAt(0).toUpperCase()
+                          )}
                         </div>
                         <div className="min-w-0 flex-1 rounded-2xl bg-black/30 px-3 py-2 ring-1 ring-zinc-800/80">
                           <div className="flex items-center justify-between gap-2">

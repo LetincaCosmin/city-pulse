@@ -219,6 +219,7 @@ create table if not exists public.post_comments (
   post_id bigint not null references public.posts(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   user_name text not null default 'Utilizator',
+  user_avatar_url text,
   body text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -228,6 +229,7 @@ alter table public.post_comments
   add column if not exists post_id bigint references public.posts(id) on delete cascade,
   add column if not exists user_id uuid references auth.users(id) on delete cascade,
   add column if not exists user_name text not null default 'Utilizator',
+  add column if not exists user_avatar_url text,
   add column if not exists body text not null default '',
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
