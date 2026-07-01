@@ -1439,11 +1439,11 @@ export default function HomePageClient() {
 
       {selectedPost && selectedPostText && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-3 backdrop-blur-sm sm:p-4"
+          className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-black/90 px-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm sm:p-4 md:items-center md:overflow-hidden"
           onClick={() => setSelectedPost(null)}
         >
           <article
-            className="no-scrollbar relative flex h-auto max-h-[94vh] w-full max-w-[560px] flex-col overflow-y-auto rounded-3xl border border-zinc-800 bg-[#111113] shadow-[0_0_35px_rgba(0,0,0,0.55)] md:h-[94vh] md:max-w-[1180px] md:flex-row md:overflow-hidden"
+            className="no-scrollbar relative flex w-full max-w-[560px] flex-col overflow-hidden rounded-3xl border border-zinc-800 bg-[#111113] shadow-[0_0_35px_rgba(0,0,0,0.55)] md:h-[94vh] md:max-h-[94vh] md:max-w-[1180px] md:flex-row"
             onClick={(event) => event.stopPropagation()}
           >
             <button
@@ -1456,16 +1456,16 @@ export default function HomePageClient() {
             </button>
 
             {selectedPost.image && (
-              <div className="flex max-h-[70vh] min-h-[300px] items-center justify-center bg-black md:h-full md:max-h-none md:min-h-0 md:flex-1">
+              <div className="flex w-full shrink-0 items-center justify-center bg-black p-2 md:h-full md:min-w-0 md:flex-1 md:shrink md:overflow-hidden md:p-0">
                 <img
                   src={selectedPost.image}
                   alt={selectedPostText.title}
-                  className="block h-full max-h-[70vh] max-w-full object-contain md:max-h-none"
+                  className="block max-h-[80dvh] max-w-full rounded-t-2xl object-contain md:h-full md:max-h-none md:rounded-none"
                 />
               </div>
             )}
 
-            <div className="no-scrollbar flex w-full flex-col overflow-y-auto md:h-full md:w-[380px] md:shrink-0 md:border-l md:border-zinc-800">
+            <div className="no-scrollbar flex w-full flex-col md:h-full md:w-[380px] md:shrink-0 md:overflow-y-auto md:border-l md:border-zinc-800">
               <div className="border-b border-zinc-900 p-4 pb-3">
                 <div className="flex items-start gap-3 pr-11">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-zinc-950 text-[#ff003c] ring-1 ring-white/10">
